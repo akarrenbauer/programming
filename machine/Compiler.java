@@ -1,15 +1,20 @@
+import java.io.ByteArrayInputStream;
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.BufferedWriter;
 import java.io.FileWriter;
+import java.io.IOException;
+
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+
 import java.util.List;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Stack;
+import java.util.stream.Collectors;
 
 public class Compiler {
 
@@ -19,7 +24,7 @@ public class Compiler {
     private static final int DEC = 3;
     private static final int JNZ = 4;
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws ParseException {
         if (args.length < 1) {
             System.err.println("Please provide the path to the source file as an argument.");
             System.exit(1);
@@ -43,7 +48,7 @@ public class Compiler {
         }
     }
 
-    public static List<Integer> compile(String inputFilePath) {
+    public static List<Integer> compile(String inputFilePath) throws ParseException {
         List<String> sourceCode = new ArrayList<>();
         try (BufferedReader reader = new BufferedReader(new FileReader(inputFilePath))) {
             String line;
@@ -55,6 +60,7 @@ public class Compiler {
             System.err.println("Error reading the source file: " + inputFilePath);
             e.printStackTrace();
         }
+
         return new ArrayList<>(); // Return an empty list instead of null
     }
 
@@ -63,6 +69,9 @@ public class Compiler {
         List<String> strippedSourceCode = stripComments( includeImports( sourceCode ) );
 
         Map<String,List<String>> macroMap = new HashMap<>();
+
+        int labelCounter = 0;
+
         // Iterate through source code to find and replace macro definitions and calls
         for (int i = 0; i < strippedSourceCode.size(); i++) {
             String line = strippedSourceCode.get(i).trim();
@@ -74,6 +83,8 @@ public class Compiler {
                     String parameters = line.substring(line.indexOf('(') + 1, line.indexOf(')')).trim();
                     String[] parameterList = parameters.split(",");
 
+                    Map<String,String> locals = new HashMap<>();
+
                     // Extract macro body
                     StringBuilder macroBody = new StringBuilder();
                     Stack<String> blockStack = new Stack<>();
@@ -84,14 +95,26 @@ public class Compiler {
                     while (i < strippedSourceCode.size()) {
                         String macroLine = strippedSourceCode.get(i).trim();
 
-                        if (macroLine.contains("{")) {
-                            blockStack.push("{");
-                        } else if (macroLine.contains("}")) {
-                            if (blockStack.isEmpty()) {
-                                throw new IllegalArgumentException("Unmatched parenthesis: " + macroLine );
-                            } else {
-                                blockStack.pop();
+                        for( var c : macroLine.toCharArray() ) {
+                            if (c == '{') {
+                                blockStack.push("{");
+                            } else if (c == '}') {
+                                if (blockStack.isEmpty()) {
+                                    throw new IllegalArgumentException("Unmatched parenthesis: " + macroLine );
+                                } else {
+                                    blockStack.pop();
+                                }
                             }
+                        }
+
+                        if( macroLine.contains(":") ) {
+                            String label = macroLine.substring(0, macroLine.indexOf(':')).trim();
+                            locals.put(label, "___#" + labelCounter + "___");
+                            ++labelCounter;
+                        }
+                        for( var local : locals.entrySet() ) {
+                            macroLine = macroLine.replaceAll("\\b" + local.getKey() + "\\b", 
+                                local.getValue());                            
                         }
 
                         for ( int k = 0; k < parameterList.length; ++k) {
@@ -119,6 +142,19 @@ public class Compiler {
                                 String expandedMacro = macroDefinition;
                                 for (int k = 0; k < argumentList.length; k++) {
                                     expandedMacro = expandedMacro.replaceAll("%%"+k, argumentList[k].trim());
+                                }
+                                Map<String, String> labelMap = new HashMap<>();
+                                String[] labelTokens = expandedMacro.split("___");
+                                for( var token : labelTokens ) {
+                                    if( token.startsWith("#") ){ 
+                                        //String labelNumberString = token.substring(currentLine.indexOf('(') + 1, currentLine.indexOf(')'));
+                                        //int counter = Integer.parseInt(labelNumberString);
+                                        if( !labelMap.containsKey(token) ) {
+                                            labelMap.put(token, "___#" + labelCounter + "___");
+                                            ++labelCounter;
+                                        }
+                                        expandedMacro = expandedMacro.replaceAll("___"+token+"___", labelMap.get(token));
+                                    }
                                 }
 
                                 strippedSourceCode.set(j, expandedMacro);
@@ -190,153 +226,23 @@ public class Compiler {
         return output;
     }
 
-    public static List<Integer> compile(List<String> sourceCode)  throws IllegalArgumentException {
+    public static List<Integer> compile(List<String> sourceCode)  throws ParseException, IllegalArgumentException {
         List<String> preprocessedCode = preProcess( sourceCode );
-        // List to store the bytecode
-        List<Integer> bytecode = new ArrayList<>();
-        // Map to store variable names and their indices in the bytecode
-        Map<String, Integer> identifiers = new HashMap<>();
 
-        Map<Integer,String> forwardIdentifiers = new HashMap<>();
+        List<String> codeCopy = new ArrayList<>( preprocessedCode );
+        codeCopy.add("");
 
-        Stack<StackEntry> blockStack = new Stack<>();
+        String joinedString = codeCopy.stream()
+                                      .collect(Collectors.joining(System.lineSeparator()))
+                                      .replaceAll("#","");
+                                      
+        System.out.println(joinedString);                                      
 
-        boolean first = true;
+        CompilerParser parser = new CompilerParser(new ByteArrayInputStream(joinedString.getBytes(StandardCharsets.UTF_8)));
+        return parser.Program()
+                        .stream()
+                        .map( e -> Integer.valueOf(e.getValue()) )
+                        .collect(Collectors.toList());
 
-        // Iterate through the high-level program and generate bytecode
-        for (String line : preprocessedCode) {
-
-            int commentIndex = line.indexOf("//");
-            if (commentIndex != -1) {
-                line = line.substring(0, commentIndex).trim();
-            }
-            // Collapse multiple consecutive whitespaces
-            line = line.replaceAll("\\s+", " ").trim();
-
-            String strippedLine = line;
-
-            int colonIndex = line.indexOf(":");
-            if(colonIndex != -1 ) {
-                String[] supertokens = line.split(":");
-                if( supertokens.length > 2 ) {
-                    throw new IllegalArgumentException( "Only one label per line allowed: " + line );
-                } else if( identifiers.containsKey(supertokens[0]) ) {
-                    throw new IllegalArgumentException( "Label is already defined elsewhere: " + line );
-                } else {
-                    identifiers.put(supertokens[0], bytecode.size());
-                }
-                strippedLine = line.substring(colonIndex+1).trim();
-            }
-
-            String[] tokens = strippedLine.split(" ");
-            String command = tokens[0];
-            if( ("").equals(command) ) {
-                // do nothing
-            } else if( command.matches("\\d+") ) {
-                bytecode.add( Integer.parseInt(command) );
-                first = false;
-            } else if( first ) {
-                forwardIdentifiers.put(0,command);
-                bytecode.add(null);
-                first = false;
-            } else {
-                switch (command) {
-                    case "HALT":
-                        bytecode.add(HALT); // HALT command
-                        break;
-                    case "NOP":
-                        bytecode.add(NOP); // NOP command
-                        break;
-                    case "INC":
-                        if (tokens.length < 2) {
-                            throw new IllegalArgumentException("Invalid command or missing arguments: " + line);
-                        }
-                        bytecode.add(INC); // INC command
-                        if( tokens[1].matches("\\d+") ) {
-                            bytecode.add( Integer.parseInt(tokens[1]) );
-                        } else if (!identifiers.containsKey(tokens[1])) {
-                            throw new IllegalArgumentException("Undefined variable: " + tokens[1]);
-                        } else {
-                            bytecode.add(identifiers.get(tokens[1])); // address
-                        }
-                        break;
-                    case "DEC":
-                        if (tokens.length < 2) {
-                            throw new IllegalArgumentException("Invalid command or missing arguments: " + line);
-                        }
-                        bytecode.add(DEC); // DEC command
-                        if( tokens[1].matches("\\d+") ) {
-                            bytecode.add( Integer.parseInt(tokens[1]) );
-                        } else if (!identifiers.containsKey(tokens[1])) {
-                            throw new IllegalArgumentException("Undefined variable: " + tokens[1]);
-                        } else {
-                            bytecode.add(identifiers.get(tokens[1])); // address
-                        }
-                        break;
-                    case "JNZ":
-                        if (tokens.length < 3) {
-                            throw new IllegalArgumentException("Invalid command or missing arguments: " + line);
-                        }
-                        bytecode.add(JNZ); // JNZ command
-                        if( tokens[1].matches("\\d+") ) {
-                            bytecode.add( Integer.parseInt(tokens[1]) );
-                        } else if (!identifiers.containsKey(tokens[1])) {
-                            throw new IllegalArgumentException("Undefined variable: " + tokens[1]);
-                        } else {
-                            bytecode.add(identifiers.get(tokens[1])); // address
-                        }
-                        if( tokens[2].matches("\\d+") ) {
-                            bytecode.add( Integer.parseInt(tokens[2]) );
-                        } else if (!identifiers.containsKey(tokens[2])) {
-                            forwardIdentifiers.put(bytecode.size(),tokens[2]);
-                            bytecode.add(null);
-                        } else {
-                            bytecode.add(identifiers.get(tokens[2])); // address
-                        }
-                        break;
-                    case "do":
-                        if (tokens.length != 2) {
-                            throw new IllegalArgumentException("do must be followed by {: " + line);
-                        }
-                        blockStack.push(new StackEntry(bytecode.size(),"do"));
-                        break;
-                    case "}":
-                        if( blockStack.empty() ) {
-                            throw new IllegalArgumentException("unmatched }:" + line );
-                        }
-                        if( tokens.length > 1 ) {
-                            StackEntry item = blockStack.peek();
-                            if( ("do").equals(item.type) ) {
-                                int variableIndex = strippedLine.indexOf("} while(");
-                                if (variableIndex != -1) {
-                                    String condition = strippedLine.substring(variableIndex+("} while(").length()).trim();
-                                    String[] conditionTokens = condition.split("!");
-                                    bytecode.add(JNZ);
-                                    bytecode.add(identifiers.get(conditionTokens[0].trim()));
-                                    bytecode.add(item.index);
-                                } else {
-                                    throw new IllegalArgumentException("After } only while( is allowed: " + line);
-                                }
-                            }
-                        }
-                        blockStack.pop();
-                        break;
-                    default:
-                        throw new IllegalArgumentException("Invalid command: " + command);
-                }
-            }
-        }
-
-        for( var entry : forwardIdentifiers.entrySet() ) {
-            final int i = entry.getKey();
-            final String label = entry.getValue();
-            if( !identifiers.containsKey(label) ) {
-                throw new IllegalArgumentException("Undefined label: " + label);
-            } else {
-                bytecode.set(i, identifiers.get( label ) );
-            }
-        }
-
-        return bytecode;
     }
 }

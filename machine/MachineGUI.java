@@ -39,7 +39,7 @@ public class MachineGUI extends Application {
     private CustomPane customPane;
     private ScrollBar vScrollBar;
     private Stage currentStage;
-    
+
     private String sourceFile;
 
     public static void main(String[] args) {
@@ -143,23 +143,27 @@ public class MachineGUI extends Application {
                     machine.reload();
                     updateMemoryDisplay();
             });
-            
+
         Button compileButton = new Button("Compile");
         compileButton.setOnAction(e -> compileMemoryFromFile(primaryStage));
 
         Button recompileButton = new Button("Recompile");
         recompileButton.setOnAction(e -> {
-                    machine.load( Compiler.compile( sourceFile ) );
+                    try {
+                        machine.load( Compiler.compile( sourceFile ) );
+                    } catch(ParseException excptn ) {
+                        System.out.println( excptn.getMessage() );
+                        excptn.printStackTrace();
+                    }
                     updateMemoryDisplay();
             });
-            
+
         Button resetButton = new Button("Reset");
         resetButton.setOnAction(e -> {
                     machine.reset();
                     updateMemoryDisplay();
             });
 
-            
         Button runButton = new Button("Run");
         runButton.setOnAction(e -> {
                     machine.run();
@@ -223,10 +227,10 @@ public class MachineGUI extends Application {
         if (selectedFile != null) {
             machine.load(selectedFile.getAbsolutePath());
             updateMemoryDisplay();
-            refreshScene(primaryStage);
+            //refreshScene(primaryStage);
         }
     }
-    
+
     private void compileMemoryFromFile(Stage primaryStage) {
         FileChooser fileChooser = new FileChooser();
         fileChooser.setTitle("Open Source File");
@@ -235,9 +239,14 @@ public class MachineGUI extends Application {
 
         if (selectedFile != null) {
             sourceFile = selectedFile.getAbsolutePath();
-            machine.load( Compiler.compile( sourceFile ) );
+            try {
+                machine.load( Compiler.compile( sourceFile ) );
+            } catch(ParseException excptn ) {
+                System.out.println( excptn.getMessage() );
+                excptn.printStackTrace();
+            }
             updateMemoryDisplay();
-            refreshScene(primaryStage);
+            //refreshScene(primaryStage);
         }
     }
 

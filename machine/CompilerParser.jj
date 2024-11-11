@@ -1,0 +1,277 @@
+options {
+    STATIC = false;
+}
+
+PARSER_BEGIN(CompilerParser)
+
+import java.util.List;
+import java.util.Map;
+import java.util.ArrayList;
+import java.util.HashMap;
+
+
+public class CompilerParser {
+
+    private List<Number> byteCode = new ArrayList<>();
+    private CodeSegment codeSegment = new CodeSegment();
+    private DataSegment dataSegment = new DataSegment();
+
+    public static void main(String[] args) throws ParseException {
+        CompilerParser parser = new CompilerParser(System.in);
+        parser.Program();
+    }
+}
+
+PARSER_END(CompilerParser)
+
+SKIP :
+{
+  " "
+| "\t"
+| "\r"
+}
+
+TOKEN : {
+    < HALT : "HALT" >
+  | < NOP : "NOP" >
+  | < INC : "INC" >
+  | < DEC : "DEC" >
+  | < JNZ : "JNZ" >
+  | < DO : "do" >
+  | < WHILE : "while" >
+  | < IF : "if" >
+  | < ELSE : "else" >
+  | < IDENTIFIER : ["a"-"z","A"-"Z","_"] ( ["a"-"z","A"-"Z","_","0"-"9"] )* >
+  | < NUMBER : ( ["0"-"9"] )+ >
+  | < NEQ : "!=" >
+  | < EQ : "==" >
+  | < COLON : ":" >
+  | < COMMENT : "//" ( ~["\n"] )* >
+  | < EOL : "\n" >
+}
+
+List<Number> Program() : {
+} {
+    EntryPoint() ( Comment() )? <EOL>
+    StatementsOrBlocks()
+    <EOF> {
+        byteCode.addAll(dataSegment);
+        codeSegment.applyOffset( byteCode.size() );
+        byteCode.addAll(codeSegment);
+        return byteCode;
+    }
+}
+
+void VariableDeclaration() : {
+    Token id, number;
+} {
+    id = <IDENTIFIER> <COLON> number = <NUMBER> ( Comment() )? <EOL> {
+        Number variable = dataSegment.newVariable(id.image, number.image);
+        codeSegment.addClear(variable);
+        int value = Integer.parseInt(number.image);
+        for( int i = 0; i < value; ++i ) {
+            codeSegment.addINC(variable);
+        }
+
+    }
+}
+
+Number Variable() : {
+    Token id;
+} {
+    id = <IDENTIFIER> {
+        return dataSegment.getVariable(id.image);
+    }
+}
+
+void LabelDeclaration() : {
+    Token label;
+} {
+    label = <IDENTIFIER> <COLON> {
+        codeSegment.placeLabel(label.image);
+    }
+}
+
+Number Label() : {
+    Token id;
+} {
+    id = <IDENTIFIER> {
+        return codeSegment.getLabel(id.image);
+    }
+}
+
+
+Number Num( List<Number> segment ) : {
+    Token num;
+} {
+    num = <NUMBER> {
+        Number n = new Number(num.image);
+        segment.add( n );
+        return n;
+    }
+}
+void EntryPoint() : {
+    Token id;
+} {
+      id = <IDENTIFIER> { dataSegment.add(codeSegment.newLabel(id.image)); }
+    | Num(dataSegment)
+}
+
+Number DoWhileCondition() : {
+    Number address;
+    Token number;
+} {
+    LOOKAHEAD(2)
+      address = Variable() <NEQ> number = <NUMBER> {
+        int n = Integer.parseInt(number.image);
+        if( n == 0 ) {
+            return address;
+        } else {
+            return address;
+        }
+      }
+    | address = Variable() <EQ> number = <NUMBER> {
+        Number target = codeSegment.newLabel();
+        Number flag = dataSegment.newVariable(0);
+        codeSegment.addClear(flag);
+        codeSegment.addJNZ(address, target);
+        codeSegment.addINC(flag);
+        codeSegment.placeLabel(target);
+        return flag;
+      }
+}
+
+Number IfCondition() : {
+    Number address;
+    Token number;
+} {
+    LOOKAHEAD(2)
+      address = Variable() <NEQ> number = <NUMBER> {
+        Number target = codeSegment.newLabel();
+        Number flag = dataSegment.newVariable(0);
+        codeSegment.addClear(flag);
+        codeSegment.addJNZ(address, target);
+        codeSegment.addINC(flag);
+        codeSegment.placeLabel(target);
+        return flag;
+      }
+    | address = Variable() <EQ> number = <NUMBER> {
+        return address;
+      }
+}
+
+void StatementsOrBlocks() : {
+} {
+    ( LabeledStatementOrBlock() )*
+}
+
+void LabeledStatementOrBlock() : {
+} {
+    LOOKAHEAD(3)
+      VariableDeclaration()
+    | ( LabelDeclaration() )* StatementOrBlock()
+}
+
+void StatementOrBlock() : {
+} {
+      Block()
+    | DoWhileBlock()
+    | WhileBlock()
+    | IfElseBlock()
+    | Statement()
+}
+
+void Block() : {
+} {
+    "{" StatementsOrBlocks() "}" ( Comment() )? <EOL>
+}
+
+void DoWhileBlock() : {
+    Number condition;
+    Number target = codeSegment.newLabel();
+} {
+    <DO> "{"
+        StatementsOrBlocks()
+    "}" <WHILE> "(" condition = DoWhileCondition() ")" ( Comment() )? <EOL> {
+        codeSegment.addJNZ(condition, target);
+    }
+}
+
+void WhileBlock() : {
+    Number condition;
+    Number begin = codeSegment.newLabel();
+    Number end = codeSegment.newLabel();
+} {
+    <WHILE> "(" condition=IfCondition() ")" { codeSegment.addJNZ(condition, end); } "{"
+        StatementsOrBlocks()
+    "}" ( Comment() )? <EOL> {
+        codeSegment.addJNZ(new Number(0), begin);
+        codeSegment.placeLabel(end);
+    }
+}
+
+void IfElseBlock() : {
+    Number condition;
+    Number end = codeSegment.newLabel();
+} {
+    <IF> "(" condition=IfCondition() ")" { codeSegment.addJNZ(condition, end); } "{"
+        StatementsOrBlocks()
+    "}" ( <ELSE> "{"
+        StatementsOrBlocks()
+    "}" )? ( Comment() )? <EOL> {
+        codeSegment.placeLabel(end);
+    }
+}
+
+void Statement() : {
+} {
+      ( Command() )? ( Comment() )? <EOL>
+}
+
+void Comment() : {
+} {
+    <COMMENT>
+}
+
+void Halt() : {
+} {
+    <HALT> { codeSegment.add(Number.HALT); }
+}
+
+void Nop() : {
+} {
+    <NOP> { codeSegment.add(Number.NOP); }
+}
+
+void Inc() : {
+    Number arg1;
+} {
+    <INC> arg1 = Variable() { codeSegment.addINC(arg1); }
+}
+
+void Dec() : {
+    Number arg1;
+} {
+    <DEC> arg1 = Variable() { codeSegment.addDEC(arg1); }
+}
+
+void Jnz() : {
+    Number arg1;
+    Token arg2;
+} {
+    <JNZ> arg1 = Variable() arg2 = <IDENTIFIER> {
+        Number target = codeSegment.getLabel(arg2.image);
+        codeSegment.addJNZ(arg1, target);
+    }
+}
+
+void Command() : {
+    Number arg1, arg2;
+} {
+
+      Halt()
+    | Nop()
+    | Inc()
+    | Dec()
+    | Jnz()
+}
