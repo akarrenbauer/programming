@@ -149,8 +149,6 @@ public class Compiler {
                                 String[] labelTokens = expandedMacro.split("___");
                                 for( var token : labelTokens ) {
                                     if( token.startsWith("#") ){ 
-                                        //String labelNumberString = token.substring(currentLine.indexOf('(') + 1, currentLine.indexOf(')'));
-                                        //int counter = Integer.parseInt(labelNumberString);
                                         if( !labelMap.containsKey(token) ) {
                                             labelMap.put(token, "___#" + labelCounter + "___");
                                             ++labelCounter;

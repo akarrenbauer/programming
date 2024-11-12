@@ -153,18 +153,18 @@ void WhileBlock() : {
 
 void IfElseBlock() : {
     Number condition;
-    Number else = codeSegment.newLabel();
-    Number end = codeSegment.newLabel();
+    Number elseLabel = codeSegment.newLabel();
+    Number endLabel = codeSegment.newLabel();
 } {
-    <IF> "(" condition=IfCondition() ")" { codeSegment.addJNZ(condition, else); } "{"
+    <IF> "(" condition=IfCondition() ")" { codeSegment.addJNZ(condition, elseLabel); } "{"
         StatementsOrBlocks()
     "}" ( <ELSE> {
-        codeSegment.addJnz(new Number(0), end);
-        codeSegment.placeLabel(else);
+        codeSegment.addJNZ(new Number(0), endLabel);
+        codeSegment.placeLabel(elseLabel);
     } "{"
         StatementsOrBlocks()
     "}" )? ( Comment() )? <EOL> {
-        codeSegment.placeLabel(end);
+        codeSegment.placeLabel(endLabel);
     }
 }
 
