@@ -120,7 +120,7 @@ public class Compiler {
                         }
 
                         for ( int k = 0; k < parameterList.length; ++k) {
-                            macroLine = macroLine.replaceAll("\\b" + parameterList[k].trim() + "\\b", "%%"+k);
+                            macroLine = macroLine.replaceAll("\\b" + parameterList[k].trim() + "\\b", "%%"+k+"%%");
                         }
                         strippedSourceCode.set(i, "");
                         i++;
@@ -143,7 +143,7 @@ public class Compiler {
                             if( argumentList.length == parameterList.length ) {
                                 String expandedMacro = macroDefinition;
                                 for (int k = 0; k < argumentList.length; k++) {
-                                    expandedMacro = expandedMacro.replaceAll("%%"+k, argumentList[k].trim());
+                                    expandedMacro = expandedMacro.replaceAll("%%"+k+"%%", argumentList[k].trim());
                                 }
                                 Map<String, String> labelMap = new HashMap<>();
                                 String[] labelTokens = expandedMacro.split("___");
