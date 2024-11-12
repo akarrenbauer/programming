@@ -65,6 +65,32 @@ List<Number> Program() : {
     }
 }
 
+void EntryPoint() : {
+    Token id, num;
+} {
+      id = <IDENTIFIER> { dataSegment.add(codeSegment.newLabel(id.image)); }
+    | num = <NUMBER> {
+        dataSegment.add( new Number(num.image) );
+    }
+}
+
+void Comment() : {
+} {
+    <COMMENT>
+}
+
+void StatementsOrBlocks() : {
+} {
+    ( LabeledStatementOrBlock() )*
+}
+
+void LabeledStatementOrBlock() : {
+} {
+    LOOKAHEAD(3)
+      VariableDeclaration()
+    | ( LabelDeclaration() )* StatementOrBlock()
+}
+
 void VariableDeclaration() : {
     Token id, number;
 } {
@@ -79,14 +105,6 @@ void VariableDeclaration() : {
     }
 }
 
-Number Variable() : {
-    Token id;
-} {
-    id = <IDENTIFIER> {
-        return dataSegment.getVariable(id.image);
-    }
-}
-
 void LabelDeclaration() : {
     Token label;
 } {
@@ -95,29 +113,64 @@ void LabelDeclaration() : {
     }
 }
 
-Number Label() : {
-    Token id;
+void StatementOrBlock() : {
 } {
-    id = <IDENTIFIER> {
-        return codeSegment.getLabel(id.image);
+      Block()
+    | DoWhileBlock()
+    | WhileBlock()
+    | IfElseBlock()
+    | Statement()
+}
+
+void Block() : {
+} {
+    "{" StatementsOrBlocks() "}" ( Comment() )? <EOL>
+}
+
+void DoWhileBlock() : {
+    Number condition;
+    Number target = codeSegment.newLabel();
+} {
+    <DO> "{"
+        StatementsOrBlocks()
+    "}" <WHILE> "(" condition = DoWhileCondition() ")" ( Comment() )? <EOL> {
+        codeSegment.addJNZ(condition, target);
     }
 }
 
-
-Number Num( List<Number> segment ) : {
-    Token num;
+void WhileBlock() : {
+    Number condition;
+    Number begin = codeSegment.newLabel();
+    Number end = codeSegment.newLabel();
 } {
-    num = <NUMBER> {
-        Number n = new Number(num.image);
-        segment.add( n );
-        return n;
+    <WHILE> "(" condition=IfCondition() ")" { codeSegment.addJNZ(condition, end); } "{"
+        StatementsOrBlocks()
+    "}" ( Comment() )? <EOL> {
+        codeSegment.addJNZ(new Number(0), begin);
+        codeSegment.placeLabel(end);
     }
 }
-void EntryPoint() : {
-    Token id;
+
+void IfElseBlock() : {
+    Number condition;
+    Number else = codeSegment.newLabel();
+    Number end = codeSegment.newLabel();
 } {
-      id = <IDENTIFIER> { dataSegment.add(codeSegment.newLabel(id.image)); }
-    | Num(dataSegment)
+    <IF> "(" condition=IfCondition() ")" { codeSegment.addJNZ(condition, else); } "{"
+        StatementsOrBlocks()
+    "}" ( <ELSE> {
+        codeSegment.addJnz(new Number(0), end);
+        codeSegment.placeLabel(else);
+    } "{"
+        StatementsOrBlocks()
+    "}" )? ( Comment() )? <EOL> {
+        codeSegment.placeLabel(end);
+    }
+}
+
+void Statement() : {
+} {
+      ( Command() )? ( Comment() )? <EOL>
 }
 
 Number DoWhileCondition() : {
@@ -163,77 +216,24 @@ Number IfCondition() : {
       }
 }
 
-void StatementsOrBlocks() : {
+void Command() : {
+    Number arg1, arg2;
 } {
-    ( LabeledStatementOrBlock() )*
+
+      Halt()
+    | Nop()
+    | Inc()
+    | Dec()
+    | Jnz()
 }
 
-void LabeledStatementOrBlock() : {
-} {
-    LOOKAHEAD(3)
-      VariableDeclaration()
-    | ( LabelDeclaration() )* StatementOrBlock()
-}
 
-void StatementOrBlock() : {
+Number Variable() : {
+    Token id;
 } {
-      Block()
-    | DoWhileBlock()
-    | WhileBlock()
-    | IfElseBlock()
-    | Statement()
-}
-
-void Block() : {
-} {
-    "{" StatementsOrBlocks() "}" ( Comment() )? <EOL>
-}
-
-void DoWhileBlock() : {
-    Number condition;
-    Number target = codeSegment.newLabel();
-} {
-    <DO> "{"
-        StatementsOrBlocks()
-    "}" <WHILE> "(" condition = DoWhileCondition() ")" ( Comment() )? <EOL> {
-        codeSegment.addJNZ(condition, target);
+    id = <IDENTIFIER> {
+        return dataSegment.getVariable(id.image);
     }
-}
-
-void WhileBlock() : {
-    Number condition;
-    Number begin = codeSegment.newLabel();
-    Number end = codeSegment.newLabel();
-} {
-    <WHILE> "(" condition=IfCondition() ")" { codeSegment.addJNZ(condition, end); } "{"
-        StatementsOrBlocks()
-    "}" ( Comment() )? <EOL> {
-        codeSegment.addJNZ(new Number(0), begin);
-        codeSegment.placeLabel(end);
-    }
-}
-
-void IfElseBlock() : {
-    Number condition;
-    Number end = codeSegment.newLabel();
-} {
-    <IF> "(" condition=IfCondition() ")" { codeSegment.addJNZ(condition, end); } "{"
-        StatementsOrBlocks()
-    "}" ( <ELSE> "{"
-        StatementsOrBlocks()
-    "}" )? ( Comment() )? <EOL> {
-        codeSegment.placeLabel(end);
-    }
-}
-
-void Statement() : {
-} {
-      ( Command() )? ( Comment() )? <EOL>
-}
-
-void Comment() : {
-} {
-    <COMMENT>
 }
 
 void Halt() : {
@@ -266,15 +266,4 @@ void Jnz() : {
         Number target = codeSegment.getLabel(arg2.image);
         codeSegment.addJNZ(arg1, target);
     }
-}
-
-void Command() : {
-    Number arg1, arg2;
-} {
-
-      Halt()
-    | Nop()
-    | Inc()
-    | Dec()
-    | Jnz()
 }
