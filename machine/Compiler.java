@@ -1,3 +1,5 @@
+package machine;
+
 import java.io.ByteArrayInputStream;
 import java.io.BufferedReader;
 import java.io.FileReader;

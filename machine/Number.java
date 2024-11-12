@@ -1,3 +1,5 @@
+package machine;
+
 class Number {
     public static final Number HALT = new Number(0);
     public static final Number NOP = new Number(1);
