@@ -92,17 +92,37 @@ void LabeledStatementOrBlock() : {
 }
 
 void VariableDeclaration() : {
-    Token id, number;
+    Token id, rvalue;
 } {
-    id = <IDENTIFIER> <COLON> number = <NUMBER> ( Comment() )? <EOL> {
-        Number variable = dataSegment.newVariable(id.image, number.image);
-        codeSegment.addClear(variable);
-        int value = Integer.parseInt(number.image);
-        for( int i = 0; i < value; ++i ) {
-            codeSegment.addINC(variable);
-        }
+    LOOKAHEAD(3)
+      id = <IDENTIFIER> <COLON> rvalue = <NUMBER> ( Comment() )? <EOL> {
+          Number variable = dataSegment.newVariable(id.image, rvalue.image);
+          codeSegment.addClear(variable);
+          int value = Integer.parseInt(rvalue.image);
+          for( int i = 0; i < value; ++i ) {
+              codeSegment.addINC(variable);
+          }
+      }
+    | id = <IDENTIFIER> <COLON> rvalue = <IDENTIFIER> ( Comment() )? <EOL> {
+          Number left   = dataSegment.newVariable(id.image, 0);
+          Number middle = dataSegment.newVariable(0);
+          Number right  = dataSegment.getVariable(rvalue.image);
+          codeSegment.addClear(left);
+          codeSegment.addClear(middle);
+          codeSegment.addINC(right);
+          Number cloneLoop = codeSegment.newLabel();
+          codeSegment.addINC(left);
+          codeSegment.addINC(middle);
+          codeSegment.addDEC(right);
+          codeSegment.addJNZ(right, cloneLoop);
+          codeSegment.addDEC(left);
+          Number restoreLoop = codeSegment.newLabel();
+          codeSegment.addINC(right);
+          codeSegment.addDEC(middle);
+          codeSegment.addJNZ(middle, restoreLoop);
+          codeSegment.addDEC(right);
+      }
 
-    }
 }
 
 void LabelDeclaration() : {
