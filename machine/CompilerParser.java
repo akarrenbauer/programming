@@ -368,7 +368,7 @@ codeSegment.placeLabel(endLabel);
   final public Number DoWhileCondition() throws ParseException {Number address;
     Token number;
     if (jj_2_3(2)) {
-      address = Variable();
+      address = Lhs();
       jj_consume_token(NEQ);
       number = jj_consume_token(NUMBER);
 int n = Integer.parseInt(number.image);
@@ -379,8 +379,9 @@ int n = Integer.parseInt(number.image);
         }
     } else {
       switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-      case IDENTIFIER:{
-        address = Variable();
+      case IDENTIFIER:
+      case NUMBER:{
+        address = Lhs();
         jj_consume_token(EQ);
         number = jj_consume_token(NUMBER);
 Number target = codeSegment.newLabel();
@@ -401,10 +402,31 @@ Number target = codeSegment.newLabel();
     throw new Error("Missing return statement in function");
 }
 
+  final public Number Lhs() throws ParseException {Token lhs;
+    switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
+    case IDENTIFIER:{
+      lhs = jj_consume_token(IDENTIFIER);
+{if ("" != null) return dataSegment.getVariable(lhs.image);}
+      break;
+      }
+    case NUMBER:{
+      lhs = jj_consume_token(NUMBER);
+{if ("" != null) return dataSegment.newVariable(Integer.parseInt(lhs.image));}
+      break;
+      }
+    default:
+      jj_la1[17] = jj_gen;
+      jj_consume_token(-1);
+      throw new ParseException();
+    }
+    throw new Error("Missing return statement in function");
+}
+
   final public Number IfCondition() throws ParseException {Number address;
     Token number;
+    Token constant;
     if (jj_2_4(2)) {
-      address = Variable();
+      address = Lhs();
       jj_consume_token(NEQ);
       number = jj_consume_token(NUMBER);
 Number target = codeSegment.newLabel();
@@ -416,15 +438,16 @@ Number target = codeSegment.newLabel();
         {if ("" != null) return flag;}
     } else {
       switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-      case IDENTIFIER:{
-        address = Variable();
+      case IDENTIFIER:
+      case NUMBER:{
+        address = Lhs();
         jj_consume_token(EQ);
         number = jj_consume_token(NUMBER);
 {if ("" != null) return address;}
         break;
         }
       default:
-        jj_la1[17] = jj_gen;
+        jj_la1[18] = jj_gen;
         jj_consume_token(-1);
         throw new ParseException();
       }
@@ -455,7 +478,7 @@ Number target = codeSegment.newLabel();
       break;
       }
     default:
-      jj_la1[18] = jj_gen;
+      jj_la1[19] = jj_gen;
       jj_consume_token(-1);
       throw new ParseException();
     }
@@ -530,37 +553,33 @@ Number target = codeSegment.getLabel(arg2.image);
     finally { jj_save(3, xla); }
   }
 
-  private boolean jj_3_4()
- {
-    if (jj_3R_Variable_254_5_4()) return true;
-    if (jj_scan_token(NEQ)) return true;
-    return false;
-  }
-
-  private boolean jj_3_3()
- {
-    if (jj_3R_Variable_254_5_4()) return true;
-    if (jj_scan_token(NEQ)) return true;
-    return false;
-  }
-
-  private boolean jj_3R_Variable_254_5_4()
- {
-    if (jj_scan_token(IDENTIFIER)) return true;
-    return false;
-  }
-
-  private boolean jj_3_1()
- {
-    if (jj_3R_VariableDeclaration_97_5_3()) return true;
-    return false;
-  }
-
   private boolean jj_3R_VariableDeclaration_106_7_5()
  {
     if (jj_scan_token(IDENTIFIER)) return true;
     if (jj_scan_token(COLON)) return true;
     if (jj_scan_token(IDENTIFIER)) return true;
+    return false;
+  }
+
+  private boolean jj_3_3()
+ {
+    if (jj_3R_Lhs_223_7_4()) return true;
+    if (jj_scan_token(NEQ)) return true;
+    return false;
+  }
+
+  private boolean jj_3_4()
+ {
+    if (jj_3R_Lhs_223_7_4()) return true;
+    if (jj_scan_token(NEQ)) return true;
+    return false;
+  }
+
+  private boolean jj_3_2()
+ {
+    if (jj_scan_token(IDENTIFIER)) return true;
+    if (jj_scan_token(COLON)) return true;
+    if (jj_scan_token(NUMBER)) return true;
     return false;
   }
 
@@ -575,11 +594,32 @@ Number target = codeSegment.getLabel(arg2.image);
     return false;
   }
 
-  private boolean jj_3_2()
+  private boolean jj_3R_Lhs_226_7_7()
+ {
+    if (jj_scan_token(NUMBER)) return true;
+    return false;
+  }
+
+  private boolean jj_3_1()
+ {
+    if (jj_3R_VariableDeclaration_97_5_3()) return true;
+    return false;
+  }
+
+  private boolean jj_3R_Lhs_223_7_4()
+ {
+    Token xsp;
+    xsp = jj_scanpos;
+    if (jj_3R_Lhs_223_7_6()) {
+    jj_scanpos = xsp;
+    if (jj_3R_Lhs_226_7_7()) return true;
+    }
+    return false;
+  }
+
+  private boolean jj_3R_Lhs_223_7_6()
  {
     if (jj_scan_token(IDENTIFIER)) return true;
-    if (jj_scan_token(COLON)) return true;
-    if (jj_scan_token(NUMBER)) return true;
     return false;
   }
 
@@ -594,13 +634,13 @@ Number target = codeSegment.getLabel(arg2.image);
   private Token jj_scanpos, jj_lastpos;
   private int jj_la;
   private int jj_gen;
-  final private int[] jj_la1 = new int[19];
+  final private int[] jj_la1 = new int[20];
   static private int[] jj_la1_0;
   static {
 	   jj_la1_init_0();
 	}
 	private static void jj_la1_init_0() {
-	   jj_la1_0 = new int[] {0x40000,0x6000,0x1c2ff0,0x2000,0x1c2ff0,0x40000,0x40000,0x2000,0x1c0ff0,0x40000,0x40000,0x40000,0x1000,0x40000,0x1f0,0x40000,0x2000,0x2000,0x1f0,};
+	   jj_la1_0 = new int[] {0x40000,0x6000,0x1c2ff0,0x2000,0x1c2ff0,0x40000,0x40000,0x2000,0x1c0ff0,0x40000,0x40000,0x40000,0x1000,0x40000,0x1f0,0x40000,0x6000,0x6000,0x6000,0x1f0,};
 	}
   final private JJCalls[] jj_2_rtns = new JJCalls[4];
   private boolean jj_rescan = false;
@@ -617,7 +657,7 @@ Number target = codeSegment.getLabel(arg2.image);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 19; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 20; i++) jj_la1[i] = -1;
 	 for (int i = 0; i < jj_2_rtns.length; i++) jj_2_rtns[i] = new JJCalls();
   }
 
@@ -632,7 +672,7 @@ Number target = codeSegment.getLabel(arg2.image);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 19; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 20; i++) jj_la1[i] = -1;
 	 for (int i = 0; i < jj_2_rtns.length; i++) jj_2_rtns[i] = new JJCalls();
   }
 
@@ -643,7 +683,7 @@ Number target = codeSegment.getLabel(arg2.image);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 19; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 20; i++) jj_la1[i] = -1;
 	 for (int i = 0; i < jj_2_rtns.length; i++) jj_2_rtns[i] = new JJCalls();
   }
 
@@ -662,7 +702,7 @@ Number target = codeSegment.getLabel(arg2.image);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 19; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 20; i++) jj_la1[i] = -1;
 	 for (int i = 0; i < jj_2_rtns.length; i++) jj_2_rtns[i] = new JJCalls();
   }
 
@@ -672,7 +712,7 @@ Number target = codeSegment.getLabel(arg2.image);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 19; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 20; i++) jj_la1[i] = -1;
 	 for (int i = 0; i < jj_2_rtns.length; i++) jj_2_rtns[i] = new JJCalls();
   }
 
@@ -682,7 +722,7 @@ Number target = codeSegment.getLabel(arg2.image);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 19; i++) jj_la1[i] = -1;
+	 for (int i = 0; i < 20; i++) jj_la1[i] = -1;
 	 for (int i = 0; i < jj_2_rtns.length; i++) jj_2_rtns[i] = new JJCalls();
   }
 
@@ -818,7 +858,7 @@ Number target = codeSegment.getLabel(arg2.image);
 	   la1tokens[jj_kind] = true;
 	   jj_kind = -1;
 	 }
-	 for (int i = 0; i < 19; i++) {
+	 for (int i = 0; i < 20; i++) {
 	   if (jj_la1[i] == jj_gen) {
 		 for (int j = 0; j < 32; j++) {
 		   if ((jj_la1_0[i] & (1<<j)) != 0) {

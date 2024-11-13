@@ -198,7 +198,7 @@ Number DoWhileCondition() : {
     Token number;
 } {
     LOOKAHEAD(2)
-      address = Variable() <NEQ> number = <NUMBER> {
+      address = Lhs() <NEQ> number = <NUMBER> {
         int n = Integer.parseInt(number.image);
         if( n == 0 ) {
             return address;
@@ -206,7 +206,7 @@ Number DoWhileCondition() : {
             return address;
         }
       }
-    | address = Variable() <EQ> number = <NUMBER> {
+    | address = Lhs() <EQ> number = <NUMBER> {
         Number target = codeSegment.newLabel();
         Number flag = dataSegment.newVariable(0);
         codeSegment.addClear(flag);
@@ -217,12 +217,24 @@ Number DoWhileCondition() : {
       }
 }
 
+Number Lhs() : {
+    Token lhs;
+} {
+      lhs = <IDENTIFIER> {
+        return dataSegment.getVariable(lhs.image);
+      }
+    | lhs = <NUMBER> {
+        return dataSegment.newVariable(Integer.parseInt(lhs.image));
+    }
+}
+
 Number IfCondition() : {
     Number address;
     Token number;
+    Token constant;
 } {
     LOOKAHEAD(2)
-      address = Variable() <NEQ> number = <NUMBER> {
+      address = Lhs() <NEQ> number = <NUMBER> {
         Number target = codeSegment.newLabel();
         Number flag = dataSegment.newVariable(0);
         codeSegment.addClear(flag);
@@ -231,7 +243,7 @@ Number IfCondition() : {
         codeSegment.placeLabel(target);
         return flag;
       }
-    | address = Variable() <EQ> number = <NUMBER> {
+    | address = Lhs() <EQ> number = <NUMBER> {
         return address;
       }
 }

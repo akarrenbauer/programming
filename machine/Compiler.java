@@ -66,6 +66,20 @@ public class Compiler {
         return new ArrayList<>(); // Return an empty list instead of null
     }
 
+    public static boolean matchingSignature(String[] argumentList, String[] parameterList ) {
+        if( argumentList.length != parameterList.length ) {
+            return false;
+        }
+        for( int k = 0; k < argumentList.length; ++k ) {
+            if( Character.isDigit(parameterList[k].charAt(0)) ) {
+                if( !parameterList[k].equals(argumentList[k]) ) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     public static List<String> preProcess( List<String> sourceCode ) throws IllegalArgumentException {
 
         List<String> strippedSourceCode = stripComments( includeImports( sourceCode ) );
@@ -75,7 +89,7 @@ public class Compiler {
         int labelCounter = 0;
 
         // Iterate through source code to find and replace macro definitions and calls
-        for (int i = 0; i < strippedSourceCode.size(); i++) {
+        for (int i = strippedSourceCode.size()-1; i >= 0; --i) {
             String line = strippedSourceCode.get(i).trim();
 
             // Check if the line is a macro definition
@@ -84,6 +98,7 @@ public class Compiler {
                     String macroName = line.substring(5, line.indexOf('(')).trim();
                     String parameters = line.substring(line.indexOf('(') + 1, line.indexOf(')')).trim();
                     String[] parameterList = parameters.split(",");
+                    boolean[] nonconst = new boolean[parameterList.length];
 
                     Map<String,String> locals = new HashMap<>();
 
@@ -93,6 +108,7 @@ public class Compiler {
                     if( line.contains("{") ) {
                         blockStack.push("{");
                     }
+                    strippedSourceCode.set(i, "");
                     i++; // Move to the next line, which should be the start of the macro body
                     while (i < strippedSourceCode.size()) {
                         String macroLine = strippedSourceCode.get(i).trim();
@@ -120,6 +136,10 @@ public class Compiler {
                         }
 
                         for ( int k = 0; k < parameterList.length; ++k) {
+                            if( macroLine.contains("INC " + parameterList[k].trim()) ||
+                            macroLine.contains("DEC " + parameterList[k].trim()) ) {
+                                nonconst[k] = true;
+                            }
                             macroLine = macroLine.replaceAll("\\b" + parameterList[k].trim() + "\\b", "%%"+k+"%%");
                         }
                         strippedSourceCode.set(i, "");
@@ -136,30 +156,45 @@ public class Compiler {
 
                     // Replace all macro calls in the source code
                     for (int j = i; j < strippedSourceCode.size(); j++) {
-                        String currentLine = strippedSourceCode.get(j).trim();
-                        if (currentLine.startsWith(macroName + "(") && currentLine.endsWith(")")) {
-                            String arguments = currentLine.substring(currentLine.indexOf('(') + 1, currentLine.indexOf(')')).trim();
-                            String[] argumentList = arguments.split(",");
-                            if( argumentList.length == parameterList.length ) {
-                                String expandedMacro = macroDefinition;
-                                for (int k = 0; k < argumentList.length; k++) {
-                                    expandedMacro = expandedMacro.replaceAll("%%"+k+"%%", argumentList[k].trim());
-                                }
-                                Map<String, String> labelMap = new HashMap<>();
-                                String[] labelTokens = expandedMacro.split("___");
-                                for( var token : labelTokens ) {
-                                    if( token.startsWith("#") ){ 
-                                        if( !labelMap.containsKey(token) ) {
-                                            labelMap.put(token, "___#" + labelCounter + "___");
+                        StringBuilder replacement = new StringBuilder();
+                        String[] subLines = strippedSourceCode.get(j).split("\n");
+                        for( String subLine : subLines ) {
+                            String currentLine = subLine.trim();
+                            if (currentLine.startsWith(macroName + "(") && currentLine.endsWith(")")) {
+                                String arguments = currentLine.substring(currentLine.indexOf('(') + 1, currentLine.indexOf(')')).trim();
+                                String[] argumentList = arguments.split(",");
+                                if( matchingSignature(argumentList, parameterList) ) {
+                                    String expandedMacro = macroDefinition;
+                                    for (int k = 0; k < argumentList.length; k++) {
+                                        String arg = argumentList[k].trim();
+                                        if( nonconst[k] && Character.isDigit(arg.charAt(0)) ) {
+                                            expandedMacro = "___#" + labelCounter + "___: " + arg + "\n" +
+                                                expandedMacro.replaceAll("%%"+k+"%%", "___#" + labelCounter + "___");
                                             ++labelCounter;
+                                        } else {
+                                            expandedMacro = expandedMacro.replaceAll("%%"+k+"%%", argumentList[k].trim());
                                         }
-                                        expandedMacro = expandedMacro.replaceAll("___"+token+"___", labelMap.get(token));
                                     }
-                                }
+                                    Map<String, String> labelMap = new HashMap<>();
+                                    for( var token : locals.values() ) {
+                                        if( expandedMacro.contains(token) ){
+                                            if( !labelMap.containsKey(token) ) {
+                                                labelMap.put(token, "___#" + labelCounter + "___");
+                                                ++labelCounter;
+                                            }
+                                            expandedMacro = expandedMacro.replaceAll(token, labelMap.get(token));
+                                        }
+                                    }
 
-                                strippedSourceCode.set(j, expandedMacro);
+                                    replacement.append(expandedMacro).append("\n");
+                                } else {
+                                    replacement.append(currentLine).append("\n");
+                                }
+                            } else {
+                                replacement.append(currentLine).append("\n");
                             }
                         }
+                        strippedSourceCode.set(j, replacement.toString() );
                     }
                 } else{
                     throw new IllegalArgumentException("void keyword must be followed by identifier and (...): " + line ); 
@@ -179,7 +214,9 @@ public class Compiler {
         for( String line : sourceCode ) {
             String[] lines = line.split("\n");
             for( String newLine : lines ) {
-                output.add(newLine);
+                if( !newLine.isEmpty() ) {
+                    output.add(newLine);
+                }
             }
         }
         return output;
@@ -233,16 +270,16 @@ public class Compiler {
         codeCopy.add("");
 
         String joinedString = codeCopy.stream()
-                                      .collect(Collectors.joining(System.lineSeparator()))
+                                      .collect(Collectors.joining("\n"))
                                       .replaceAll("#","");
-                                      
+
         System.out.println(joinedString);                                      
 
         CompilerParser parser = new CompilerParser(new ByteArrayInputStream(joinedString.getBytes(StandardCharsets.UTF_8)));
         return parser.Program()
-                        .stream()
-                        .map( e -> Integer.valueOf(e.getValue()) )
-                        .collect(Collectors.toList());
+                     .stream()
+                     .map( e -> Integer.valueOf(e.getValue()) )
+                     .collect(Collectors.toList());
 
     }
 }
