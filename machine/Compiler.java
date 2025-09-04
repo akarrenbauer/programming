@@ -271,7 +271,7 @@ public class Compiler {
 
         String joinedString = codeCopy.stream()
                                       .collect(Collectors.joining("\n"))
-                                      .replaceAll("#","");
+                                      .replaceAll("#|//(~[\\n])*|\\n"," ");
 
         System.out.println(joinedString);                                      
 

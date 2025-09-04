@@ -21,27 +21,31 @@ public interface CompilerParserConstants {
   /** RegularExpression Id. */
   int JNZ = 8;
   /** RegularExpression Id. */
-  int DO = 9;
+  int VAR = 9;
   /** RegularExpression Id. */
-  int WHILE = 10;
+  int ASSIGN = 10;
   /** RegularExpression Id. */
-  int IF = 11;
+  int DO = 11;
   /** RegularExpression Id. */
-  int ELSE = 12;
+  int WHILE = 12;
   /** RegularExpression Id. */
-  int IDENTIFIER = 13;
+  int IF = 13;
   /** RegularExpression Id. */
-  int NUMBER = 14;
+  int ELSE = 14;
   /** RegularExpression Id. */
-  int NEQ = 15;
+  int IDENTIFIER = 15;
   /** RegularExpression Id. */
-  int EQ = 16;
+  int NUMBER = 16;
   /** RegularExpression Id. */
-  int COLON = 17;
+  int NEQ = 17;
   /** RegularExpression Id. */
-  int COMMENT = 18;
+  int EQ = 18;
   /** RegularExpression Id. */
-  int EOL = 19;
+  int COLON = 19;
+  /** RegularExpression Id. */
+  int EOS = 20;
+  /** RegularExpression Id. */
+  int BEGIN = 21;
 
   /** Lexical state. */
   int DEFAULT = 0;
@@ -57,6 +61,8 @@ public interface CompilerParserConstants {
     "\"INC\"",
     "\"DEC\"",
     "\"JNZ\"",
+    "\"var\"",
+    "\"=\"",
     "\"do\"",
     "\"while\"",
     "\"if\"",
@@ -66,8 +72,8 @@ public interface CompilerParserConstants {
     "\"!=\"",
     "\"==\"",
     "\":\"",
-    "<COMMENT>",
-    "\"\\n\"",
+    "\";\"",
+    "\"begin:\"",
     "\"{\"",
     "\"}\"",
     "\"(\"",

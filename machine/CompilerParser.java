@@ -21,17 +21,23 @@ public class CompilerParser implements CompilerParserConstants {
     }
 
   final public List<Number> Program() throws ParseException {
-    EntryPoint();
-    switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-    case COMMENT:{
-      Comment();
-      break;
+dataSegment.add(codeSegment.newLabel("begin"));
+    label_1:
+    while (true) {
+      switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
+      case VAR:{
+        ;
+        break;
+        }
+      default:
+        jj_la1[0] = jj_gen;
+        break label_1;
       }
-    default:
-      jj_la1[0] = jj_gen;
-      ;
+      GlobalVariableDeclaration();
+      jj_consume_token(EOS);
     }
-    jj_consume_token(EOL);
+    jj_consume_token(BEGIN);
+codeSegment.placeLabel("begin");
     StatementsOrBlocks();
     jj_consume_token(0);
 byteCode.addAll(dataSegment);
@@ -41,16 +47,20 @@ byteCode.addAll(dataSegment);
     throw new Error("Missing return statement in function");
 }
 
-  final public void EntryPoint() throws ParseException {Token id, num;
+  final public void GlobalVariableDeclaration() throws ParseException {Token id, rvalue;
+    jj_consume_token(VAR);
+    id = jj_consume_token(IDENTIFIER);
+    jj_consume_token(ASSIGN);
     switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-    case IDENTIFIER:{
-      id = jj_consume_token(IDENTIFIER);
-dataSegment.add(codeSegment.newLabel(id.image));
+    case NUMBER:{
+      rvalue = jj_consume_token(NUMBER);
+Number variable = dataSegment.newVariable(id.image, rvalue.image);
       break;
       }
-    case NUMBER:{
-      num = jj_consume_token(NUMBER);
-dataSegment.add( new Number(num.image) );
+    case IDENTIFIER:{
+      rvalue = jj_consume_token(IDENTIFIER);
+Number right  = dataSegment.getVariable(rvalue.image);
+            Number variable = dataSegment.newVariable(id.image, right.getValue());
       break;
       }
     default:
@@ -60,12 +70,8 @@ dataSegment.add( new Number(num.image) );
     }
 }
 
-  final public void Comment() throws ParseException {
-    jj_consume_token(COMMENT);
-}
-
   final public void StatementsOrBlocks() throws ParseException {
-    label_1:
+    label_2:
     while (true) {
       switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
       case HALT:
@@ -73,126 +79,61 @@ dataSegment.add( new Number(num.image) );
       case INC:
       case DEC:
       case JNZ:
+      case VAR:
       case DO:
       case WHILE:
       case IF:
       case IDENTIFIER:
-      case COMMENT:
-      case EOL:
-      case 20:{
+      case EOS:
+      case 22:{
         ;
         break;
         }
       default:
         jj_la1[2] = jj_gen;
-        break label_1;
+        break label_2;
       }
-      LabeledStatementOrBlock();
+      StatementOrBlock();
     }
 }
 
-  final public void LabeledStatementOrBlock() throws ParseException {
-    if (jj_2_1(3)) {
-      VariableDeclaration();
-    } else {
-      switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-      case HALT:
-      case NOP:
-      case INC:
-      case DEC:
-      case JNZ:
-      case DO:
-      case WHILE:
-      case IF:
-      case IDENTIFIER:
-      case COMMENT:
-      case EOL:
-      case 20:{
-        label_2:
-        while (true) {
-          switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-          case IDENTIFIER:{
-            ;
-            break;
-            }
-          default:
-            jj_la1[3] = jj_gen;
-            break label_2;
-          }
-          LabelDeclaration();
-        }
-        StatementOrBlock();
-        break;
-        }
-      default:
-        jj_la1[4] = jj_gen;
-        jj_consume_token(-1);
-        throw new ParseException();
+  final public void StatementOrBlock() throws ParseException {
+    switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
+    case HALT:
+    case NOP:
+    case INC:
+    case DEC:
+    case JNZ:
+    case VAR:
+    case DO:
+    case WHILE:
+    case IF:
+    case EOS:
+    case 22:{
+      UnlabeledStatementOrBlock();
+      break;
       }
-    }
-}
-
-  final public void VariableDeclaration() throws ParseException {Token id, rvalue;
-    if (jj_2_2(3)) {
-      id = jj_consume_token(IDENTIFIER);
-      jj_consume_token(COLON);
-      rvalue = jj_consume_token(NUMBER);
-      switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-      case COMMENT:{
-        Comment();
-        break;
-        }
-      default:
-        jj_la1[5] = jj_gen;
-        ;
-      }
-      jj_consume_token(EOL);
-Number variable = dataSegment.newVariable(id.image, rvalue.image);
-          codeSegment.addClear(variable);
-          int value = Integer.parseInt(rvalue.image);
-          for( int i = 0; i < value; ++i ) {
-              codeSegment.addINC(variable);
-          }
-    } else {
-      switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-      case IDENTIFIER:{
-        id = jj_consume_token(IDENTIFIER);
-        jj_consume_token(COLON);
-        rvalue = jj_consume_token(IDENTIFIER);
+    case IDENTIFIER:{
+      label_3:
+      while (true) {
+        LabelDeclaration();
         switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-        case COMMENT:{
-          Comment();
+        case IDENTIFIER:{
+          ;
           break;
           }
         default:
-          jj_la1[6] = jj_gen;
-          ;
+          jj_la1[3] = jj_gen;
+          break label_3;
         }
-        jj_consume_token(EOL);
-Number left   = dataSegment.newVariable(id.image, 0);
-          Number middle = dataSegment.newVariable(0);
-          Number right  = dataSegment.getVariable(rvalue.image);
-          codeSegment.addClear(left);
-          codeSegment.addClear(middle);
-          codeSegment.addINC(right);
-          Number cloneLoop = codeSegment.newLabel();
-          codeSegment.addINC(left);
-          codeSegment.addINC(middle);
-          codeSegment.addDEC(right);
-          codeSegment.addJNZ(right, cloneLoop);
-          codeSegment.addDEC(left);
-          Number restoreLoop = codeSegment.newLabel();
-          codeSegment.addINC(right);
-          codeSegment.addDEC(middle);
-          codeSegment.addJNZ(middle, restoreLoop);
-          codeSegment.addDEC(right);
-        break;
-        }
-      default:
-        jj_la1[7] = jj_gen;
-        jj_consume_token(-1);
-        throw new ParseException();
       }
+      UnlabeledStatementOrBlock();
+      break;
+      }
+    default:
+      jj_la1[4] = jj_gen;
+      jj_consume_token(-1);
+      throw new ParseException();
     }
 }
 
@@ -202,9 +143,9 @@ Number left   = dataSegment.newVariable(id.image, 0);
 codeSegment.placeLabel(label.image);
 }
 
-  final public void StatementOrBlock() throws ParseException {
+  final public void UnlabeledStatementOrBlock() throws ParseException {
     switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-    case 20:{
+    case 22:{
       Block();
       break;
       }
@@ -225,54 +166,35 @@ codeSegment.placeLabel(label.image);
     case INC:
     case DEC:
     case JNZ:
-    case COMMENT:
-    case EOL:{
+    case VAR:
+    case EOS:{
       Statement();
       break;
       }
     default:
-      jj_la1[8] = jj_gen;
+      jj_la1[5] = jj_gen;
       jj_consume_token(-1);
       throw new ParseException();
     }
 }
 
   final public void Block() throws ParseException {
-    jj_consume_token(20);
+    jj_consume_token(22);
     StatementsOrBlocks();
-    jj_consume_token(21);
-    switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-    case COMMENT:{
-      Comment();
-      break;
-      }
-    default:
-      jj_la1[9] = jj_gen;
-      ;
-    }
-    jj_consume_token(EOL);
+    jj_consume_token(23);
 }
 
   final public void DoWhileBlock() throws ParseException {Number condition;
     Number target = codeSegment.newLabel();
     jj_consume_token(DO);
-    jj_consume_token(20);
-    StatementsOrBlocks();
-    jj_consume_token(21);
-    jj_consume_token(WHILE);
     jj_consume_token(22);
-    condition = DoWhileCondition();
+    StatementsOrBlocks();
     jj_consume_token(23);
-    switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-    case COMMENT:{
-      Comment();
-      break;
-      }
-    default:
-      jj_la1[10] = jj_gen;
-      ;
-    }
-    jj_consume_token(EOL);
+    jj_consume_token(WHILE);
+    jj_consume_token(24);
+    condition = DoWhileCondition();
+    jj_consume_token(25);
+    jj_consume_token(EOS);
 codeSegment.addJNZ(condition, target);
 }
 
@@ -280,23 +202,13 @@ codeSegment.addJNZ(condition, target);
     Number begin = codeSegment.newLabel();
     Number end = codeSegment.newLabel();
     jj_consume_token(WHILE);
-    jj_consume_token(22);
+    jj_consume_token(24);
     condition = IfCondition();
-    jj_consume_token(23);
+    jj_consume_token(25);
 codeSegment.addJNZ(condition, end);
-    jj_consume_token(20);
+    jj_consume_token(22);
     StatementsOrBlocks();
-    jj_consume_token(21);
-    switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-    case COMMENT:{
-      Comment();
-      break;
-      }
-    default:
-      jj_la1[11] = jj_gen;
-      ;
-    }
-    jj_consume_token(EOL);
+    jj_consume_token(23);
 codeSegment.addJNZ(new Number(0), begin);
         codeSegment.placeLabel(end);
 }
@@ -305,37 +217,27 @@ codeSegment.addJNZ(new Number(0), begin);
     Number elseLabel = codeSegment.newLabel();
     Number endLabel = codeSegment.newLabel();
     jj_consume_token(IF);
-    jj_consume_token(22);
+    jj_consume_token(24);
     condition = IfCondition();
-    jj_consume_token(23);
+    jj_consume_token(25);
 codeSegment.addJNZ(condition, elseLabel);
-    jj_consume_token(20);
+    jj_consume_token(22);
     StatementsOrBlocks();
-    jj_consume_token(21);
+    jj_consume_token(23);
     switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
     case ELSE:{
       jj_consume_token(ELSE);
 codeSegment.addJNZ(new Number(0), endLabel);
         codeSegment.placeLabel(elseLabel);
-      jj_consume_token(20);
+      jj_consume_token(22);
       StatementsOrBlocks();
-      jj_consume_token(21);
+      jj_consume_token(23);
       break;
       }
     default:
-      jj_la1[12] = jj_gen;
+      jj_la1[6] = jj_gen;
       ;
     }
-    switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-    case COMMENT:{
-      Comment();
-      break;
-      }
-    default:
-      jj_la1[13] = jj_gen;
-      ;
-    }
-    jj_consume_token(EOL);
 codeSegment.placeLabel(endLabel);
 }
 
@@ -345,114 +247,76 @@ codeSegment.placeLabel(endLabel);
     case NOP:
     case INC:
     case DEC:
-    case JNZ:{
-      Command();
-      break;
-      }
-    default:
-      jj_la1[14] = jj_gen;
-      ;
-    }
-    switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-    case COMMENT:{
-      Comment();
-      break;
-      }
-    default:
-      jj_la1[15] = jj_gen;
-      ;
-    }
-    jj_consume_token(EOL);
-}
-
-  final public Number DoWhileCondition() throws ParseException {Number address;
-    Token number;
-    if (jj_2_3(2)) {
-      address = Lhs();
-      jj_consume_token(NEQ);
-      number = jj_consume_token(NUMBER);
-int n = Integer.parseInt(number.image);
-        if( n == 0 ) {
-            {if ("" != null) return address;}
-        } else {
-            {if ("" != null) return address;}
-        }
-    } else {
+    case JNZ:
+    case VAR:{
       switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-      case IDENTIFIER:
-      case NUMBER:{
-        address = Lhs();
-        jj_consume_token(EQ);
-        number = jj_consume_token(NUMBER);
-Number target = codeSegment.newLabel();
-        Number flag = dataSegment.newVariable(0);
-        codeSegment.addClear(flag);
-        codeSegment.addJNZ(address, target);
-        codeSegment.addINC(flag);
-        codeSegment.placeLabel(target);
-        {if ("" != null) return flag;}
+      case VAR:{
+        LocalVariableDeclaration();
+        break;
+        }
+      case HALT:
+      case NOP:
+      case INC:
+      case DEC:
+      case JNZ:{
+        Command();
         break;
         }
       default:
-        jj_la1[16] = jj_gen;
+        jj_la1[7] = jj_gen;
         jj_consume_token(-1);
         throw new ParseException();
       }
-    }
-    throw new Error("Missing return statement in function");
-}
-
-  final public Number Lhs() throws ParseException {Token lhs;
-    switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-    case IDENTIFIER:{
-      lhs = jj_consume_token(IDENTIFIER);
-{if ("" != null) return dataSegment.getVariable(lhs.image);}
-      break;
-      }
-    case NUMBER:{
-      lhs = jj_consume_token(NUMBER);
-{if ("" != null) return dataSegment.newVariable(Integer.parseInt(lhs.image));}
       break;
       }
     default:
-      jj_la1[17] = jj_gen;
+      jj_la1[8] = jj_gen;
+      ;
+    }
+    jj_consume_token(EOS);
+}
+
+  final public void LocalVariableDeclaration() throws ParseException {Token id, rvalue;
+    jj_consume_token(VAR);
+    id = jj_consume_token(IDENTIFIER);
+    jj_consume_token(ASSIGN);
+    switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
+    case NUMBER:{
+      rvalue = jj_consume_token(NUMBER);
+Number variable = dataSegment.newVariable(id.image, rvalue.image);
+            codeSegment.addClear(variable);
+            int value = Integer.parseInt(rvalue.image);
+            for( int i = 0; i < value; ++i ) {
+                codeSegment.addINC(variable);
+            }
+      break;
+      }
+    case IDENTIFIER:{
+      rvalue = jj_consume_token(IDENTIFIER);
+Number left   = dataSegment.newVariable(id.image, 0);
+            Number middle = dataSegment.newVariable(0);
+            Number right  = dataSegment.getVariable(rvalue.image);
+            codeSegment.addClear(left);
+            codeSegment.addClear(middle);
+            codeSegment.addINC(right);
+            Number cloneLoop = codeSegment.newLabel();
+            codeSegment.addINC(left);
+            codeSegment.addINC(middle);
+            codeSegment.addDEC(right);
+            codeSegment.addJNZ(right, cloneLoop);
+            codeSegment.addDEC(left);
+            Number restoreLoop = codeSegment.newLabel();
+            codeSegment.addINC(right);
+            codeSegment.addDEC(middle);
+            codeSegment.addJNZ(middle, restoreLoop);
+            codeSegment.addDEC(right);
+      break;
+      }
+    default:
+      jj_la1[9] = jj_gen;
       jj_consume_token(-1);
       throw new ParseException();
     }
-    throw new Error("Missing return statement in function");
-}
-
-  final public Number IfCondition() throws ParseException {Number address;
-    Token number;
-    Token constant;
-    if (jj_2_4(2)) {
-      address = Lhs();
-      jj_consume_token(NEQ);
-      number = jj_consume_token(NUMBER);
-Number target = codeSegment.newLabel();
-        Number flag = dataSegment.newVariable(0);
-        codeSegment.addClear(flag);
-        codeSegment.addJNZ(address, target);
-        codeSegment.addINC(flag);
-        codeSegment.placeLabel(target);
-        {if ("" != null) return flag;}
-    } else {
-      switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-      case IDENTIFIER:
-      case NUMBER:{
-        address = Lhs();
-        jj_consume_token(EQ);
-        number = jj_consume_token(NUMBER);
-{if ("" != null) return address;}
-        break;
-        }
-      default:
-        jj_la1[18] = jj_gen;
-        jj_consume_token(-1);
-        throw new ParseException();
-      }
-    }
-    throw new Error("Missing return statement in function");
 }
 
   final public void Command() throws ParseException {Number arg1, arg2;
@@ -478,10 +342,96 @@ Number target = codeSegment.newLabel();
       break;
       }
     default:
-      jj_la1[19] = jj_gen;
+      jj_la1[10] = jj_gen;
       jj_consume_token(-1);
       throw new ParseException();
     }
+}
+
+  final public Number DoWhileCondition() throws ParseException {Number address;
+    Token number;
+    address = Lhs();
+    switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
+    case NEQ:{
+      jj_consume_token(NEQ);
+      number = jj_consume_token(NUMBER);
+int n = Integer.parseInt(number.image);
+            if( n == 0 ) {
+                {if ("" != null) return address;}
+            } else {
+                {if ("" != null) return address;}
+            }
+      break;
+      }
+    case EQ:{
+      jj_consume_token(EQ);
+      number = jj_consume_token(NUMBER);
+Number target = codeSegment.newLabel();
+            Number flag = dataSegment.newVariable(0);
+            codeSegment.addClear(flag);
+            codeSegment.addJNZ(address, target);
+            codeSegment.addINC(flag);
+            codeSegment.placeLabel(target);
+            {if ("" != null) return flag;}
+      break;
+      }
+    default:
+      jj_la1[11] = jj_gen;
+      jj_consume_token(-1);
+      throw new ParseException();
+    }
+    throw new Error("Missing return statement in function");
+}
+
+  final public Number Lhs() throws ParseException {Token lhs;
+    switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
+    case IDENTIFIER:{
+      lhs = jj_consume_token(IDENTIFIER);
+{if ("" != null) return dataSegment.getVariable(lhs.image);}
+      break;
+      }
+    case NUMBER:{
+      lhs = jj_consume_token(NUMBER);
+{if ("" != null) return dataSegment.newVariable(Integer.parseInt(lhs.image));}
+      break;
+      }
+    default:
+      jj_la1[12] = jj_gen;
+      jj_consume_token(-1);
+      throw new ParseException();
+    }
+    throw new Error("Missing return statement in function");
+}
+
+  final public Number IfCondition() throws ParseException {Number address;
+    Token number;
+    Token constant;
+    address = Lhs();
+    switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
+    case NEQ:{
+      jj_consume_token(NEQ);
+      number = jj_consume_token(NUMBER);
+Number target = codeSegment.newLabel();
+            Number flag = dataSegment.newVariable(0);
+            codeSegment.addClear(flag);
+            codeSegment.addJNZ(address, target);
+            codeSegment.addINC(flag);
+            codeSegment.placeLabel(target);
+            {if ("" != null) return flag;}
+      break;
+      }
+    case EQ:{
+      jj_consume_token(EQ);
+      number = jj_consume_token(NUMBER);
+{if ("" != null) return address;}
+      break;
+      }
+    default:
+      jj_la1[13] = jj_gen;
+      jj_consume_token(-1);
+      throw new ParseException();
+    }
+    throw new Error("Missing return statement in function");
 }
 
   final public Number Variable() throws ParseException {Token id;
@@ -521,108 +471,6 @@ Number target = codeSegment.getLabel(arg2.image);
         codeSegment.addJNZ(arg1, target);
 }
 
-  private boolean jj_2_1(int xla)
- {
-    jj_la = xla; jj_lastpos = jj_scanpos = token;
-    try { return (!jj_3_1()); }
-    catch(LookaheadSuccess ls) { return true; }
-    finally { jj_save(0, xla); }
-  }
-
-  private boolean jj_2_2(int xla)
- {
-    jj_la = xla; jj_lastpos = jj_scanpos = token;
-    try { return (!jj_3_2()); }
-    catch(LookaheadSuccess ls) { return true; }
-    finally { jj_save(1, xla); }
-  }
-
-  private boolean jj_2_3(int xla)
- {
-    jj_la = xla; jj_lastpos = jj_scanpos = token;
-    try { return (!jj_3_3()); }
-    catch(LookaheadSuccess ls) { return true; }
-    finally { jj_save(2, xla); }
-  }
-
-  private boolean jj_2_4(int xla)
- {
-    jj_la = xla; jj_lastpos = jj_scanpos = token;
-    try { return (!jj_3_4()); }
-    catch(LookaheadSuccess ls) { return true; }
-    finally { jj_save(3, xla); }
-  }
-
-  private boolean jj_3R_VariableDeclaration_106_7_5()
- {
-    if (jj_scan_token(IDENTIFIER)) return true;
-    if (jj_scan_token(COLON)) return true;
-    if (jj_scan_token(IDENTIFIER)) return true;
-    return false;
-  }
-
-  private boolean jj_3_3()
- {
-    if (jj_3R_Lhs_223_7_4()) return true;
-    if (jj_scan_token(NEQ)) return true;
-    return false;
-  }
-
-  private boolean jj_3_4()
- {
-    if (jj_3R_Lhs_223_7_4()) return true;
-    if (jj_scan_token(NEQ)) return true;
-    return false;
-  }
-
-  private boolean jj_3_2()
- {
-    if (jj_scan_token(IDENTIFIER)) return true;
-    if (jj_scan_token(COLON)) return true;
-    if (jj_scan_token(NUMBER)) return true;
-    return false;
-  }
-
-  private boolean jj_3R_VariableDeclaration_97_5_3()
- {
-    Token xsp;
-    xsp = jj_scanpos;
-    if (jj_3_2()) {
-    jj_scanpos = xsp;
-    if (jj_3R_VariableDeclaration_106_7_5()) return true;
-    }
-    return false;
-  }
-
-  private boolean jj_3R_Lhs_226_7_7()
- {
-    if (jj_scan_token(NUMBER)) return true;
-    return false;
-  }
-
-  private boolean jj_3_1()
- {
-    if (jj_3R_VariableDeclaration_97_5_3()) return true;
-    return false;
-  }
-
-  private boolean jj_3R_Lhs_223_7_4()
- {
-    Token xsp;
-    xsp = jj_scanpos;
-    if (jj_3R_Lhs_223_7_6()) {
-    jj_scanpos = xsp;
-    if (jj_3R_Lhs_226_7_7()) return true;
-    }
-    return false;
-  }
-
-  private boolean jj_3R_Lhs_223_7_6()
- {
-    if (jj_scan_token(IDENTIFIER)) return true;
-    return false;
-  }
-
   /** Generated Token Manager. */
   public CompilerParserTokenManager token_source;
   SimpleCharStream jj_input_stream;
@@ -631,20 +479,15 @@ Number target = codeSegment.getLabel(arg2.image);
   /** Next token. */
   public Token jj_nt;
   private int jj_ntk;
-  private Token jj_scanpos, jj_lastpos;
-  private int jj_la;
   private int jj_gen;
-  final private int[] jj_la1 = new int[20];
+  final private int[] jj_la1 = new int[14];
   static private int[] jj_la1_0;
   static {
 	   jj_la1_init_0();
 	}
 	private static void jj_la1_init_0() {
-	   jj_la1_0 = new int[] {0x40000,0x6000,0x1c2ff0,0x2000,0x1c2ff0,0x40000,0x40000,0x2000,0x1c0ff0,0x40000,0x40000,0x40000,0x1000,0x40000,0x1f0,0x40000,0x6000,0x6000,0x6000,0x1f0,};
+	   jj_la1_0 = new int[] {0x200,0x18000,0x50bbf0,0x8000,0x50bbf0,0x503bf0,0x4000,0x3f0,0x3f0,0x18000,0x1f0,0x60000,0x18000,0x60000,};
 	}
-  final private JJCalls[] jj_2_rtns = new JJCalls[4];
-  private boolean jj_rescan = false;
-  private int jj_gc = 0;
 
   /** Constructor with InputStream. */
   public CompilerParser(java.io.InputStream stream) {
@@ -657,8 +500,7 @@ Number target = codeSegment.getLabel(arg2.image);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 20; i++) jj_la1[i] = -1;
-	 for (int i = 0; i < jj_2_rtns.length; i++) jj_2_rtns[i] = new JJCalls();
+	 for (int i = 0; i < 14; i++) jj_la1[i] = -1;
   }
 
   /** Reinitialise. */
@@ -672,8 +514,7 @@ Number target = codeSegment.getLabel(arg2.image);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 20; i++) jj_la1[i] = -1;
-	 for (int i = 0; i < jj_2_rtns.length; i++) jj_2_rtns[i] = new JJCalls();
+	 for (int i = 0; i < 14; i++) jj_la1[i] = -1;
   }
 
   /** Constructor. */
@@ -683,8 +524,7 @@ Number target = codeSegment.getLabel(arg2.image);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 20; i++) jj_la1[i] = -1;
-	 for (int i = 0; i < jj_2_rtns.length; i++) jj_2_rtns[i] = new JJCalls();
+	 for (int i = 0; i < 14; i++) jj_la1[i] = -1;
   }
 
   /** Reinitialise. */
@@ -702,8 +542,7 @@ Number target = codeSegment.getLabel(arg2.image);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 20; i++) jj_la1[i] = -1;
-	 for (int i = 0; i < jj_2_rtns.length; i++) jj_2_rtns[i] = new JJCalls();
+	 for (int i = 0; i < 14; i++) jj_la1[i] = -1;
   }
 
   /** Constructor with generated Token Manager. */
@@ -712,8 +551,7 @@ Number target = codeSegment.getLabel(arg2.image);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 20; i++) jj_la1[i] = -1;
-	 for (int i = 0; i < jj_2_rtns.length; i++) jj_2_rtns[i] = new JJCalls();
+	 for (int i = 0; i < 14; i++) jj_la1[i] = -1;
   }
 
   /** Reinitialise. */
@@ -722,8 +560,7 @@ Number target = codeSegment.getLabel(arg2.image);
 	 token = new Token();
 	 jj_ntk = -1;
 	 jj_gen = 0;
-	 for (int i = 0; i < 20; i++) jj_la1[i] = -1;
-	 for (int i = 0; i < jj_2_rtns.length; i++) jj_2_rtns[i] = new JJCalls();
+	 for (int i = 0; i < 14; i++) jj_la1[i] = -1;
   }
 
   private Token jj_consume_token(int kind) throws ParseException {
@@ -733,50 +570,11 @@ Number target = codeSegment.getLabel(arg2.image);
 	 jj_ntk = -1;
 	 if (token.kind == kind) {
 	   jj_gen++;
-	   if (++jj_gc > 100) {
-		 jj_gc = 0;
-		 for (int i = 0; i < jj_2_rtns.length; i++) {
-		   JJCalls c = jj_2_rtns[i];
-		   while (c != null) {
-			 if (c.gen < jj_gen) c.first = null;
-			 c = c.next;
-		   }
-		 }
-	   }
 	   return token;
 	 }
 	 token = oldToken;
 	 jj_kind = kind;
 	 throw generateParseException();
-  }
-
-  @SuppressWarnings("serial")
-  static private final class LookaheadSuccess extends java.lang.Error {
-    @Override
-    public Throwable fillInStackTrace() {
-      return this;
-    }
-  }
-  static private final LookaheadSuccess jj_ls = new LookaheadSuccess();
-  private boolean jj_scan_token(int kind) {
-	 if (jj_scanpos == jj_lastpos) {
-	   jj_la--;
-	   if (jj_scanpos.next == null) {
-		 jj_lastpos = jj_scanpos = jj_scanpos.next = token_source.getNextToken();
-	   } else {
-		 jj_lastpos = jj_scanpos = jj_scanpos.next;
-	   }
-	 } else {
-	   jj_scanpos = jj_scanpos.next;
-	 }
-	 if (jj_rescan) {
-	   int i = 0; Token tok = token;
-	   while (tok != null && tok != jj_scanpos) { i++; tok = tok.next; }
-	   if (tok != null) jj_add_error_token(kind, i);
-	 }
-	 if (jj_scanpos.kind != kind) return true;
-	 if (jj_la == 0 && jj_scanpos == jj_lastpos) throw jj_ls;
-	 return false;
   }
 
 
@@ -809,56 +607,16 @@ Number target = codeSegment.getLabel(arg2.image);
   private java.util.List<int[]> jj_expentries = new java.util.ArrayList<int[]>();
   private int[] jj_expentry;
   private int jj_kind = -1;
-  private int[] jj_lasttokens = new int[100];
-  private int jj_endpos;
-
-  private void jj_add_error_token(int kind, int pos) {
-	 if (pos >= 100) {
-		return;
-	 }
-
-	 if (pos == jj_endpos + 1) {
-	   jj_lasttokens[jj_endpos++] = kind;
-	 } else if (jj_endpos != 0) {
-	   jj_expentry = new int[jj_endpos];
-
-	   for (int i = 0; i < jj_endpos; i++) {
-		 jj_expentry[i] = jj_lasttokens[i];
-	   }
-
-	   for (int[] oldentry : jj_expentries) {
-		 if (oldentry.length == jj_expentry.length) {
-		   boolean isMatched = true;
-
-		   for (int i = 0; i < jj_expentry.length; i++) {
-			 if (oldentry[i] != jj_expentry[i]) {
-			   isMatched = false;
-			   break;
-			 }
-
-		   }
-		   if (isMatched) {
-			 jj_expentries.add(jj_expentry);
-			 break;
-		   }
-		 }
-	   }
-
-	   if (pos != 0) {
-		 jj_lasttokens[(jj_endpos = pos) - 1] = kind;
-	   }
-	 }
-  }
 
   /** Generate ParseException. */
   public ParseException generateParseException() {
 	 jj_expentries.clear();
-	 boolean[] la1tokens = new boolean[24];
+	 boolean[] la1tokens = new boolean[26];
 	 if (jj_kind >= 0) {
 	   la1tokens[jj_kind] = true;
 	   jj_kind = -1;
 	 }
-	 for (int i = 0; i < 20; i++) {
+	 for (int i = 0; i < 14; i++) {
 	   if (jj_la1[i] == jj_gen) {
 		 for (int j = 0; j < 32; j++) {
 		   if ((jj_la1_0[i] & (1<<j)) != 0) {
@@ -867,16 +625,13 @@ Number target = codeSegment.getLabel(arg2.image);
 		 }
 	   }
 	 }
-	 for (int i = 0; i < 24; i++) {
+	 for (int i = 0; i < 26; i++) {
 	   if (la1tokens[i]) {
 		 jj_expentry = new int[1];
 		 jj_expentry[0] = i;
 		 jj_expentries.add(jj_expentry);
 	   }
 	 }
-	 jj_endpos = 0;
-	 jj_rescan_token();
-	 jj_add_error_token(0, 0);
 	 int[][] exptokseq = new int[jj_expentries.size()][];
 	 for (int i = 0; i < jj_expentries.size(); i++) {
 	   exptokseq[i] = jj_expentries.get(i);
@@ -897,49 +652,6 @@ Number target = codeSegment.getLabel(arg2.image);
 
   /** Disable tracing. */
   final public void disable_tracing() {
-  }
-
-  private void jj_rescan_token() {
-	 jj_rescan = true;
-	 for (int i = 0; i < 4; i++) {
-	   try {
-		 JJCalls p = jj_2_rtns[i];
-
-		 do {
-		   if (p.gen > jj_gen) {
-			 jj_la = p.arg; jj_lastpos = jj_scanpos = p.first;
-			 switch (i) {
-			   case 0: jj_3_1(); break;
-			   case 1: jj_3_2(); break;
-			   case 2: jj_3_3(); break;
-			   case 3: jj_3_4(); break;
-			 }
-		   }
-		   p = p.next;
-		 } while (p != null);
-
-		 } catch(LookaheadSuccess ls) { }
-	 }
-	 jj_rescan = false;
-  }
-
-  private void jj_save(int index, int xla) {
-	 JJCalls p = jj_2_rtns[index];
-	 while (p.gen > jj_gen) {
-	   if (p.next == null) { p = p.next = new JJCalls(); break; }
-	   p = p.next;
-	 }
-
-	 p.gen = jj_gen + xla - jj_la; 
-	 p.first = token;
-	 p.arg = xla;
-  }
-
-  static final class JJCalls {
-	 int gen;
-	 Token first;
-	 int arg;
-	 JJCalls next;
   }
 
 }

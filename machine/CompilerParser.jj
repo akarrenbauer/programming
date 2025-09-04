@@ -34,12 +34,15 @@ SKIP :
 | "\r"
 }
 
+
 TOKEN : {
     < HALT : "HALT" >
   | < NOP : "NOP" >
   | < INC : "INC" >
   | < DEC : "DEC" >
   | < JNZ : "JNZ" >
+  | < VAR : "var" >
+  | < ASSIGN : "=" >
   | < DO : "do" >
   | < WHILE : "while" >
   | < IF : "if" >
@@ -49,14 +52,20 @@ TOKEN : {
   | < NEQ : "!=" >
   | < EQ : "==" >
   | < COLON : ":" >
-  | < COMMENT : "//" ( ~["\n"] )* >
-  | < EOL : "\n" >
+  | < EOS : ";" >
+  | < BEGIN : "begin:" >
 }
 
 List<Number> Program() : {
 } {
-    EntryPoint() ( Comment() )? <EOL>
-    StatementsOrBlocks()
+    {
+        dataSegment.add(codeSegment.newLabel("begin"));
+    }
+    ( GlobalVariableDeclaration() <EOS> )*
+    <BEGIN> {
+        codeSegment.placeLabel("begin");
+    }
+    StatementsOrBlocks() 
     <EOF> {
         byteCode.addAll(dataSegment);
         codeSegment.applyOffset( byteCode.size() );
@@ -65,65 +74,31 @@ List<Number> Program() : {
     }
 }
 
-void EntryPoint() : {
-    Token id, num;
-} {
-      id = <IDENTIFIER> { dataSegment.add(codeSegment.newLabel(id.image)); }
-    | num = <NUMBER> {
-        dataSegment.add( new Number(num.image) );
-    }
-}
-
-void Comment() : {
-} {
-    <COMMENT>
-}
-
-void StatementsOrBlocks() : {
-} {
-    ( LabeledStatementOrBlock() )*
-}
-
-void LabeledStatementOrBlock() : {
-} {
-    LOOKAHEAD(3)
-      VariableDeclaration()
-    | ( LabelDeclaration() )* StatementOrBlock()
-}
-
-void VariableDeclaration() : {
+void GlobalVariableDeclaration() : {
     Token id, rvalue;
 } {
-    LOOKAHEAD(3)
-      id = <IDENTIFIER> <COLON> rvalue = <NUMBER> ( Comment() )? <EOL> {
-          Number variable = dataSegment.newVariable(id.image, rvalue.image);
-          codeSegment.addClear(variable);
-          int value = Integer.parseInt(rvalue.image);
-          for( int i = 0; i < value; ++i ) {
-              codeSegment.addINC(variable);
-          }
-      }
-    | id = <IDENTIFIER> <COLON> rvalue = <IDENTIFIER> ( Comment() )? <EOL> {
-          Number left   = dataSegment.newVariable(id.image, 0);
-          Number middle = dataSegment.newVariable(0);
-          Number right  = dataSegment.getVariable(rvalue.image);
-          codeSegment.addClear(left);
-          codeSegment.addClear(middle);
-          codeSegment.addINC(right);
-          Number cloneLoop = codeSegment.newLabel();
-          codeSegment.addINC(left);
-          codeSegment.addINC(middle);
-          codeSegment.addDEC(right);
-          codeSegment.addJNZ(right, cloneLoop);
-          codeSegment.addDEC(left);
-          Number restoreLoop = codeSegment.newLabel();
-          codeSegment.addINC(right);
-          codeSegment.addDEC(middle);
-          codeSegment.addJNZ(middle, restoreLoop);
-          codeSegment.addDEC(right);
-      }
-
+    <VAR> id = <IDENTIFIER> <ASSIGN> (
+          rvalue = <NUMBER> {
+            Number variable = dataSegment.newVariable(id.image, rvalue.image);
+        }
+        | rvalue = <IDENTIFIER> {
+            Number right  = dataSegment.getVariable(rvalue.image);
+            Number variable = dataSegment.newVariable(id.image, right.getValue());
+        }
+    )
 }
+
+
+void StatementsOrBlocks() : {
+} {    
+    ( StatementOrBlock() )*
+}
+
+void StatementOrBlock() : {
+} {
+    UnlabeledStatementOrBlock() | ( LabelDeclaration() )+ UnlabeledStatementOrBlock()
+}
+
 
 void LabelDeclaration() : {
     Token label;
@@ -133,7 +108,7 @@ void LabelDeclaration() : {
     }
 }
 
-void StatementOrBlock() : {
+void UnlabeledStatementOrBlock() : {
 } {
       Block()
     | DoWhileBlock()
@@ -144,7 +119,7 @@ void StatementOrBlock() : {
 
 void Block() : {
 } {
-    "{" StatementsOrBlocks() "}" ( Comment() )? <EOL>
+    "{" StatementsOrBlocks() "}"
 }
 
 void DoWhileBlock() : {
@@ -153,7 +128,7 @@ void DoWhileBlock() : {
 } {
     <DO> "{"
         StatementsOrBlocks()
-    "}" <WHILE> "(" condition = DoWhileCondition() ")" ( Comment() )? <EOL> {
+    "}" <WHILE> "(" condition = DoWhileCondition() ")" <EOS> {
         codeSegment.addJNZ(condition, target);
     }
 }
@@ -165,7 +140,7 @@ void WhileBlock() : {
 } {
     <WHILE> "(" condition=IfCondition() ")" { codeSegment.addJNZ(condition, end); } "{"
         StatementsOrBlocks()
-    "}" ( Comment() )? <EOL> {
+    "}" {
         codeSegment.addJNZ(new Number(0), begin);
         codeSegment.placeLabel(end);
     }
@@ -183,38 +158,84 @@ void IfElseBlock() : {
         codeSegment.placeLabel(elseLabel);
     } "{"
         StatementsOrBlocks()
-    "}" )? ( Comment() )? <EOL> {
+    "}" )? {
         codeSegment.placeLabel(endLabel);
     }
 }
 
 void Statement() : {
 } {
-      ( Command() )? ( Comment() )? <EOL>
+      ( LocalVariableDeclaration() | Command() )? <EOS>
+}
+
+void LocalVariableDeclaration() : {
+    Token id, rvalue;
+} {
+    <VAR> id = <IDENTIFIER> <ASSIGN> (
+          rvalue = <NUMBER> {
+            Number variable = dataSegment.newVariable(id.image, rvalue.image);
+            codeSegment.addClear(variable);
+            int value = Integer.parseInt(rvalue.image);
+            for( int i = 0; i < value; ++i ) {
+                codeSegment.addINC(variable);
+            }
+        }
+        | rvalue = <IDENTIFIER> {
+            Number left   = dataSegment.newVariable(id.image, 0);
+            Number middle = dataSegment.newVariable(0);
+            Number right  = dataSegment.getVariable(rvalue.image);
+            codeSegment.addClear(left);
+            codeSegment.addClear(middle);
+            codeSegment.addINC(right);
+            Number cloneLoop = codeSegment.newLabel();
+            codeSegment.addINC(left);
+            codeSegment.addINC(middle);
+            codeSegment.addDEC(right);
+            codeSegment.addJNZ(right, cloneLoop);
+            codeSegment.addDEC(left);
+            Number restoreLoop = codeSegment.newLabel();
+            codeSegment.addINC(right);
+            codeSegment.addDEC(middle);
+            codeSegment.addJNZ(middle, restoreLoop);
+            codeSegment.addDEC(right);
+        }
+    )
+}
+
+void Command() : {
+    Number arg1, arg2;
+} {
+
+      Halt()
+    | Nop()
+    | Inc()
+    | Dec()
+    | Jnz()
 }
 
 Number DoWhileCondition() : {
     Number address;
     Token number;
 } {
-    LOOKAHEAD(2)
-      address = Lhs() <NEQ> number = <NUMBER> {
-        int n = Integer.parseInt(number.image);
-        if( n == 0 ) {
-            return address;
-        } else {
-            return address;
+    address = Lhs() (
+        <NEQ> number = <NUMBER> {
+            int n = Integer.parseInt(number.image);
+            if( n == 0 ) {
+                return address;
+            } else {
+                return address;
+            }
         }
-      }
-    | address = Lhs() <EQ> number = <NUMBER> {
-        Number target = codeSegment.newLabel();
-        Number flag = dataSegment.newVariable(0);
-        codeSegment.addClear(flag);
-        codeSegment.addJNZ(address, target);
-        codeSegment.addINC(flag);
-        codeSegment.placeLabel(target);
-        return flag;
-      }
+        | <EQ> number = <NUMBER> {
+            Number target = codeSegment.newLabel();
+            Number flag = dataSegment.newVariable(0);
+            codeSegment.addClear(flag);
+            codeSegment.addJNZ(address, target);
+            codeSegment.addINC(flag);
+            codeSegment.placeLabel(target);
+            return flag;
+        }
+    )
 }
 
 Number Lhs() : {
@@ -233,30 +254,20 @@ Number IfCondition() : {
     Token number;
     Token constant;
 } {
-    LOOKAHEAD(2)
-      address = Lhs() <NEQ> number = <NUMBER> {
-        Number target = codeSegment.newLabel();
-        Number flag = dataSegment.newVariable(0);
-        codeSegment.addClear(flag);
-        codeSegment.addJNZ(address, target);
-        codeSegment.addINC(flag);
-        codeSegment.placeLabel(target);
-        return flag;
-      }
-    | address = Lhs() <EQ> number = <NUMBER> {
-        return address;
-      }
-}
-
-void Command() : {
-    Number arg1, arg2;
-} {
-
-      Halt()
-    | Nop()
-    | Inc()
-    | Dec()
-    | Jnz()
+      address = Lhs() (
+          <NEQ> number = <NUMBER> {
+            Number target = codeSegment.newLabel();
+            Number flag = dataSegment.newVariable(0);
+            codeSegment.addClear(flag);
+            codeSegment.addJNZ(address, target);
+            codeSegment.addINC(flag);
+            codeSegment.placeLabel(target);
+            return flag;
+        }
+        | <EQ> number = <NUMBER> {
+            return address;
+        }
+    )
 }
 
 
