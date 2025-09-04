@@ -145,7 +145,7 @@ public class Compiler {
                         String[] subLines = strippedSourceCode.get(j).split("\n");
             for (String subLine : subLines) {
                 String currentLine = subLine.trim();
-                if (currentLine.startsWith(macroName + "(") && currentLine.endsWith(")")) {
+                if (currentLine.startsWith(macroName + "(") && currentLine.endsWith(");")) {
                     String arguments = currentLine.substring(currentLine.indexOf('(') + 1, currentLine.indexOf(')')).trim();
                     String[] argumentList = arguments.split(",");
                     if (matchingSignature(argumentList, parameterList)) {
@@ -215,7 +215,7 @@ public class Compiler {
 
             // Check if the line is an import statement
             if (line.startsWith("import")) {
-                if( line.contains("\"") && line.endsWith("\"") ) {
+                if( line.contains("\"") && line.endsWith("\";") ) {
                 String filename = line.substring(line.indexOf('"') + 1, line.lastIndexOf('"')).trim();
                 try {
                         List<String> importedLines = Files.readAllLines(Paths.get(filename));
