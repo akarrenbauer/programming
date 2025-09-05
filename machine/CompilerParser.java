@@ -85,7 +85,7 @@ Number right  = dataSegment.getVariable(rvalue.image);
       case IF:
       case IDENTIFIER:
       case EOS:
-      case 22:{
+      case 23:{
         ;
         break;
         }
@@ -109,7 +109,7 @@ Number right  = dataSegment.getVariable(rvalue.image);
     case WHILE:
     case IF:
     case EOS:
-    case 22:{
+    case 23:{
       UnlabeledStatementOrBlock();
       break;
       }
@@ -145,7 +145,7 @@ codeSegment.placeLabel(label.image);
 
   final public void UnlabeledStatementOrBlock() throws ParseException {
     switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
-    case 22:{
+    case 23:{
       Block();
       break;
       }
@@ -179,21 +179,21 @@ codeSegment.placeLabel(label.image);
 }
 
   final public void Block() throws ParseException {
-    jj_consume_token(22);
-    StatementsOrBlocks();
     jj_consume_token(23);
+    StatementsOrBlocks();
+    jj_consume_token(24);
 }
 
   final public void DoWhileBlock() throws ParseException {Number condition;
     Number target = codeSegment.newLabel();
     jj_consume_token(DO);
-    jj_consume_token(22);
-    StatementsOrBlocks();
     jj_consume_token(23);
-    jj_consume_token(WHILE);
+    StatementsOrBlocks();
     jj_consume_token(24);
-    condition = DoWhileCondition();
+    jj_consume_token(WHILE);
     jj_consume_token(25);
+    condition = DoWhileCondition();
+    jj_consume_token(26);
     jj_consume_token(EOS);
 codeSegment.addJNZ(condition, target);
 }
@@ -202,13 +202,13 @@ codeSegment.addJNZ(condition, target);
     Number begin = codeSegment.newLabel();
     Number end = codeSegment.newLabel();
     jj_consume_token(WHILE);
-    jj_consume_token(24);
-    condition = IfCondition();
     jj_consume_token(25);
+    condition = IfCondition();
+    jj_consume_token(26);
 codeSegment.addJNZ(condition, end);
-    jj_consume_token(22);
-    StatementsOrBlocks();
     jj_consume_token(23);
+    StatementsOrBlocks();
+    jj_consume_token(24);
 codeSegment.addJNZ(new Number(0), begin);
         codeSegment.placeLabel(end);
 }
@@ -217,21 +217,21 @@ codeSegment.addJNZ(new Number(0), begin);
     Number elseLabel = codeSegment.newLabel();
     Number endLabel = codeSegment.newLabel();
     jj_consume_token(IF);
-    jj_consume_token(24);
-    condition = IfCondition();
     jj_consume_token(25);
+    condition = IfCondition();
+    jj_consume_token(26);
 codeSegment.addJNZ(condition, elseLabel);
-    jj_consume_token(22);
-    StatementsOrBlocks();
     jj_consume_token(23);
+    StatementsOrBlocks();
+    jj_consume_token(24);
     switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
     case ELSE:{
       jj_consume_token(ELSE);
 codeSegment.addJNZ(new Number(0), endLabel);
         codeSegment.placeLabel(elseLabel);
-      jj_consume_token(22);
-      StatementsOrBlocks();
       jj_consume_token(23);
+      StatementsOrBlocks();
+      jj_consume_token(24);
       break;
       }
     default:
@@ -486,7 +486,7 @@ Number target = codeSegment.getLabel(arg2.image);
 	   jj_la1_init_0();
 	}
 	private static void jj_la1_init_0() {
-	   jj_la1_0 = new int[] {0x200,0x18000,0x50bbf0,0x8000,0x50bbf0,0x503bf0,0x4000,0x3f0,0x3f0,0x18000,0x1f0,0x60000,0x18000,0x60000,};
+	   jj_la1_0 = new int[] {0x400,0x30000,0xa177e0,0x10000,0xa177e0,0xa077e0,0x8000,0x7e0,0x7e0,0x30000,0x3e0,0xc0000,0x30000,0xc0000,};
 	}
 
   /** Constructor with InputStream. */
@@ -611,7 +611,7 @@ Number target = codeSegment.getLabel(arg2.image);
   /** Generate ParseException. */
   public ParseException generateParseException() {
 	 jj_expentries.clear();
-	 boolean[] la1tokens = new boolean[26];
+	 boolean[] la1tokens = new boolean[27];
 	 if (jj_kind >= 0) {
 	   la1tokens[jj_kind] = true;
 	   jj_kind = -1;
@@ -625,7 +625,7 @@ Number target = codeSegment.getLabel(arg2.image);
 		 }
 	   }
 	 }
-	 for (int i = 0; i < 26; i++) {
+	 for (int i = 0; i < 27; i++) {
 	   if (la1tokens[i]) {
 		 jj_expentry = new int[1];
 		 jj_expentry[0] = i;

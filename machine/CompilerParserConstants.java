@@ -11,41 +11,41 @@ public interface CompilerParserConstants {
   /** End of File. */
   int EOF = 0;
   /** RegularExpression Id. */
-  int HALT = 4;
+  int HALT = 5;
   /** RegularExpression Id. */
-  int NOP = 5;
+  int NOP = 6;
   /** RegularExpression Id. */
-  int INC = 6;
+  int INC = 7;
   /** RegularExpression Id. */
-  int DEC = 7;
+  int DEC = 8;
   /** RegularExpression Id. */
-  int JNZ = 8;
+  int JNZ = 9;
   /** RegularExpression Id. */
-  int VAR = 9;
+  int VAR = 10;
   /** RegularExpression Id. */
-  int ASSIGN = 10;
+  int ASSIGN = 11;
   /** RegularExpression Id. */
-  int DO = 11;
+  int DO = 12;
   /** RegularExpression Id. */
-  int WHILE = 12;
+  int WHILE = 13;
   /** RegularExpression Id. */
-  int IF = 13;
+  int IF = 14;
   /** RegularExpression Id. */
-  int ELSE = 14;
+  int ELSE = 15;
   /** RegularExpression Id. */
-  int IDENTIFIER = 15;
+  int IDENTIFIER = 16;
   /** RegularExpression Id. */
-  int NUMBER = 16;
+  int NUMBER = 17;
   /** RegularExpression Id. */
-  int NEQ = 17;
+  int NEQ = 18;
   /** RegularExpression Id. */
-  int EQ = 18;
+  int EQ = 19;
   /** RegularExpression Id. */
-  int COLON = 19;
+  int COLON = 20;
   /** RegularExpression Id. */
-  int EOS = 20;
+  int EOS = 21;
   /** RegularExpression Id. */
-  int BEGIN = 21;
+  int BEGIN = 22;
 
   /** Lexical state. */
   int DEFAULT = 0;
@@ -56,6 +56,7 @@ public interface CompilerParserConstants {
     "\" \"",
     "\"\\t\"",
     "\"\\r\"",
+    "\"\\n\"",
     "\"HALT\"",
     "\"NOP\"",
     "\"INC\"",
