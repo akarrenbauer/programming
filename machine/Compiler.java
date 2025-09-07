@@ -6,6 +6,7 @@ import java.nio.file.Paths;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 
 public class Compiler {
 
@@ -115,6 +116,11 @@ public class Compiler {
                         locals.put(label, "___#" + labelCounter + "___");
                         ++labelCounter;
                     }
+                    if (macroLine.startsWith("var ") ) {
+                        String label = macroLine.substring(4, macroLine.indexOf('=')).trim();
+                        locals.put(label, "___#" + labelCounter + "___");
+                        ++labelCounter;
+                    }
                     for (var local : locals.entrySet()) {
                             macroLine = macroLine.replaceAll("\\b" + local.getKey() + "\\b", 
                                 local.getValue());                            
@@ -153,7 +159,7 @@ public class Compiler {
         for (int k = 0; k < argumentList.length; k++) {
             String arg = argumentList[k].trim();
             if (nonconst[k] && Character.isDigit(arg.charAt(0))) {
-                                            expandedMacro = "___#" + labelCounter + "___: " + arg + "\n" +
+                                            expandedMacro = "var ___#" + labelCounter + "___ = " + arg + ";\n" +
                                                 expandedMacro.replaceAll("%%"+k+"%%", "___#" + labelCounter + "___");
                 ++labelCounter;
             } else {
@@ -236,8 +242,11 @@ public class Compiler {
     }
 
     public static List<String> stripComments(List<String> sourceCode) {
+        Pattern splitAfter = Pattern.compile("(?<=[;:{])");
         return sourceCode.stream()
                 .map(line -> line.contains("//") ? line.substring(0, line.indexOf("//")).trim() : line)
+                .flatMap(s -> splitAfter.splitAsStream(s))          // keeps the delimiters at the end
+                .filter(s -> !s.isEmpty())                          // drop empty chunks
                 .collect(Collectors.toList());
     }
 
@@ -249,7 +258,7 @@ public class Compiler {
 
         String joinedString = codeCopy.stream()
                                       .collect(Collectors.joining("\n"))
-                                      .replaceAll("#|//(~[\\n])*"," ");
+                                      .replaceAll("#|//(~[\\n])*","");
 
         System.out.println(joinedString);                                      
 
