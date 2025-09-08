@@ -216,6 +216,7 @@ codeSegment.addJNZ(new Number(0), begin);
   final public void IfElseBlock() throws ParseException {Number condition;
     Number elseLabel = codeSegment.newLabel();
     Number endLabel = codeSegment.newLabel();
+    boolean hasElse = false;
     jj_consume_token(IF);
     jj_consume_token(25);
     condition = IfCondition();
@@ -229,6 +230,7 @@ codeSegment.addJNZ(condition, elseLabel);
       jj_consume_token(ELSE);
 codeSegment.addJNZ(new Number(0), endLabel);
         codeSegment.placeLabel(elseLabel);
+        hasElse = true;
       jj_consume_token(23);
       StatementsOrBlocks();
       jj_consume_token(24);
@@ -239,6 +241,9 @@ codeSegment.addJNZ(new Number(0), endLabel);
       ;
     }
 codeSegment.placeLabel(endLabel);
+if( !hasElse ) {
+            codeSegment.placeLabel(elseLabel);
+        }
 }
 
   final public void Statement() throws ParseException {

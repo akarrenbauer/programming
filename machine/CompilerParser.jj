@@ -151,17 +151,25 @@ void IfElseBlock() : {
     Number condition;
     Number elseLabel = codeSegment.newLabel();
     Number endLabel = codeSegment.newLabel();
+    boolean hasElse = false;
 } {
     <IF> "(" condition=IfCondition() ")" { codeSegment.addJNZ(condition, elseLabel); } "{"
         StatementsOrBlocks()
     "}" ( <ELSE> {
         codeSegment.addJNZ(new Number(0), endLabel);
         codeSegment.placeLabel(elseLabel);
+        hasElse = true;
     } "{"
         StatementsOrBlocks()
     "}" )? {
         codeSegment.placeLabel(endLabel);
     }
+    {
+        if( !hasElse ) {
+            codeSegment.placeLabel(elseLabel);
+        }
+    }
+
 }
 
 void Statement() : {
