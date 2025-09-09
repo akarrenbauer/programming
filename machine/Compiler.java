@@ -81,101 +81,101 @@ public class Compiler {
             // Check if the line is a macro definition
             if (line.startsWith("void") ) {
                 if( line.contains("(") && line.contains(")")) {
-                String macroName = line.substring(5, line.indexOf('(')).trim();
-                String parameters = line.substring(line.indexOf('(') + 1, line.indexOf(')')).trim();
-                String[] parameterList = parameters.split(",");
-                boolean[] nonconst = new boolean[parameterList.length];
+                    String macroName = line.substring(5, line.indexOf('(')).trim();
+                    String parameters = line.substring(line.indexOf('(') + 1, line.indexOf(')')).trim();
+                    String[] parameterList = parameters.split(",");
+                    boolean[] nonconst = new boolean[parameterList.length];
 
-                Map<String, String> locals = new HashMap<>();
+                    Map<String, String> locals = new HashMap<>();
 
                     // Extract macro body
-                StringBuilder macroBody = new StringBuilder();
-                Stack<String> blockStack = new Stack<>();
-                if (line.contains("{")) {
-                    blockStack.push("{");
-                }
-                strippedSourceCode.set(i, "");
-                    i++; // Move to the next line, which should be the start of the macro body
-                while (i < strippedSourceCode.size()) {
-                    String macroLine = strippedSourceCode.get(i).trim();
-
-                        for( var c : macroLine.toCharArray() ) {
-                        if (c == '{') {
-                            blockStack.push("{");
-                        } else if (c == '}') {
-                            if (blockStack.isEmpty()) {
-                                throw new IllegalArgumentException("Unmatched parenthesis: " + macroLine);
-                            } else {
-                                blockStack.pop();
-                            }
-                        }
-                    }
-
-                    if (macroLine.contains(":")) {
-                        String label = macroLine.substring(0, macroLine.indexOf(':')).trim();
-                        locals.put(label, "___#" + labelCounter + "___");
-                        ++labelCounter;
-                    }
-                    if (macroLine.startsWith("var ") ) {
-                        String label = macroLine.substring(4, macroLine.indexOf('=')).trim();
-                        locals.put(label, "___#" + labelCounter + "___");
-                        ++labelCounter;
-                    }
-                    for (var local : locals.entrySet()) {
-                            macroLine = macroLine.replaceAll("\\b" + local.getKey() + "\\b", 
-                                local.getValue());                            
-                    }
-
-                    for (int k = 0; k < parameterList.length; ++k) {
-                        if (macroLine.contains("INC " + parameterList[k].trim()) ||
-                            macroLine.contains("DEC " + parameterList[k].trim())) {
-                            nonconst[k] = true;
-                        }
-                        macroLine = macroLine.replaceAll("\\b" + parameterList[k].trim() + "\\b", "%%" + k + "%%");
+                    StringBuilder macroBody = new StringBuilder();
+                    Stack<String> blockStack = new Stack<>();
+                    if (line.contains("{")) {
+                        blockStack.push("{");
                     }
                     strippedSourceCode.set(i, "");
-                    i++;
+                    i++; // Move to the next line, which should be the start of the macro body
+                    while (i < strippedSourceCode.size()) {
+                        String macroLine = strippedSourceCode.get(i).trim();
+
+                        for( var c : macroLine.toCharArray() ) {
+                            if (c == '{') {
+                                blockStack.push("{");
+                            } else if (c == '}') {
+                                if (blockStack.isEmpty()) {
+                                    throw new IllegalArgumentException("Unmatched parenthesis: " + macroLine);
+                                } else {
+                                    blockStack.pop();
+                                }
+                            }
+                        }
+
+                        if (macroLine.contains(":")) {
+                            String label = macroLine.substring(0, macroLine.indexOf(':')).trim();
+                            locals.put(label, "___#" + labelCounter + "___");
+                            ++labelCounter;
+                        }
+                        if (macroLine.startsWith("var ") ) {
+                            String label = macroLine.substring(4, macroLine.indexOf('=')).trim();
+                            locals.put(label, "___#" + labelCounter + "___");
+                            ++labelCounter;
+                        }
+                        for (var local : locals.entrySet()) {
+                            macroLine = macroLine.replaceAll("\\b" + local.getKey() + "\\b", 
+                                local.getValue());                            
+                        }
+
+                        for (int k = 0; k < parameterList.length; ++k) {
+                            if (macroLine.contains("INC " + parameterList[k].trim()) ||
+                            macroLine.contains("DEC " + parameterList[k].trim())) {
+                                nonconst[k] = true;
+                            }
+                            macroLine = macroLine.replaceAll("\\b" + parameterList[k].trim() + "\\b", "%%" + k + "%%");
+                        }
+                        strippedSourceCode.set(i, "");
+                        i++;
                         if( blockStack.empty() ) {
                             break; // end of macro definition
-                    } else {
-                        macroBody.append(macroLine).append("\n");
+                        } else {
+                            macroBody.append(macroLine).append("\n");
+                        }
                     }
-                }
 
                     // Store the macro definition for replacement later
-                String macroDefinition = macroBody.toString();
+                    String macroDefinition = macroBody.toString();
 
                     // Replace all macro calls in the source code
                     for (int j = i; j < strippedSourceCode.size(); j++) {
-            StringBuilder replacement = new StringBuilder();
+                        StringBuilder replacement = new StringBuilder();
                         String[] subLines = strippedSourceCode.get(j).split("\n");
-            for (String subLine : subLines) {
-                String currentLine = subLine.trim();
-                if (currentLine.startsWith(macroName + "(") && currentLine.endsWith(");")) {
-                    String arguments = currentLine.substring(currentLine.indexOf('(') + 1, currentLine.indexOf(')')).trim();
-                    String[] argumentList = arguments.split(",");
-                    if (matchingSignature(argumentList, parameterList)) {
-        String expandedMacro = macroDefinition;
-        for (int k = 0; k < argumentList.length; k++) {
-            String arg = argumentList[k].trim();
-            if (nonconst[k] && Character.isDigit(arg.charAt(0))) {
+                        for (String subLine : subLines) {
+                            String currentLine = subLine.trim();
+                            if (currentLine.startsWith(macroName) && currentLine.substring(macroName.length()).matches("\\s*\\(.*\\);")) {
+                                String arguments = currentLine.substring(currentLine.indexOf('(') + 1, currentLine.indexOf(')')).trim();
+                                String[] argumentList = arguments.split(",");
+                                if (matchingSignature(argumentList, parameterList)) {
+                                    String expandedMacro = macroDefinition;
+                                    for (int k = 0; k < argumentList.length; k++) {
+                                        String arg = argumentList[k].trim();
+                                        if (nonconst[k] && Character.isDigit(arg.charAt(0))) {
                                             expandedMacro = "var ___#" + labelCounter + "___ = " + arg + ";\n" +
-                                                expandedMacro.replaceAll("%%"+k+"%%", "___#" + labelCounter + "___");
-                ++labelCounter;
-            } else {
-                expandedMacro = expandedMacro.replaceAll("%%" + k + "%%", argumentList[k].trim());
-            }
-        }
-        Map<String, String> labelMap = new HashMap<>();
-        for (var token : locals.values()) {
-            if (expandedMacro.contains(token)) {
+                                            expandedMacro.replaceAll("%%"+k+"%%", "___#" + labelCounter + "___");
+                                            ++labelCounter;
+                                        } else {
+                                            expandedMacro = expandedMacro.replaceAll("%%" + k + "%%", argumentList[k].trim());
+                                        }
+                                    }
+                                    Map<String, String> labelMap = new HashMap<>();
+                                    for (var token : locals.values()) {
+                                        if (expandedMacro.contains(token)) {
                                             if( !labelMap.containsKey(token) ) {
                                                 labelMap.put(token, "___#" + labelCounter + "___");
-                ++labelCounter;
-            }
+                                                ++labelCounter;
+                                            }
                                             expandedMacro = expandedMacro.replaceAll(token, labelMap.get(token));
-        }
-    }
+                                        }
+                                    }
 
                                     replacement.append(expandedMacro).append("\n");
                                 } else {
@@ -191,7 +191,7 @@ public class Compiler {
                     throw new IllegalArgumentException("void keyword must be followed by identifier and (...): " + line ); 
                 }
             }
-    }
+        }
 
         // Remove macro definitions from the source code
         strippedSourceCode.removeIf(line -> line.isEmpty() || line.trim().startsWith("void "));
@@ -222,15 +222,15 @@ public class Compiler {
             // Check if the line is an import statement
             if (line.startsWith("import")) {
                 if( line.contains("\"") && line.endsWith("\";") ) {
-                String filename = line.substring(line.indexOf('"') + 1, line.lastIndexOf('"')).trim();
-                try {
+                    String filename = line.substring(line.indexOf('"') + 1, line.lastIndexOf('"')).trim();
+                    try {
                         List<String> importedLines = Files.readAllLines(Paths.get(filename));
                         output.addAll(importedLines);
-                } catch (IOException e) {
-                    System.err.println("Error importing file: " + filename);
-                    e.printStackTrace();
-                }
-            } else {
+                    } catch (IOException e) {
+                        System.err.println("Error importing file: " + filename);
+                        e.printStackTrace();
+                    }
+                } else {
                     throw new IllegalArgumentException("import keyword must be followed by \"/path/to/file\": " + line);
                 }
             }else {
@@ -244,10 +244,10 @@ public class Compiler {
     public static List<String> stripComments(List<String> sourceCode) {
         Pattern splitAfter = Pattern.compile("(?<=[;:{])");
         return sourceCode.stream()
-                .map(line -> line.contains("//") ? line.substring(0, line.indexOf("//")).trim() : line)
-                .flatMap(s -> splitAfter.splitAsStream(s))          // keeps the delimiters at the end
-                .filter(s -> !s.isEmpty())                          // drop empty chunks
-                .collect(Collectors.toList());
+        .map(line -> line.contains("//") ? line.substring(0, line.indexOf("//")).trim() : line)
+        .flatMap(s -> splitAfter.splitAsStream(s))          // keeps the delimiters at the end
+        .filter(s -> !s.isEmpty())                          // drop empty chunks
+        .collect(Collectors.toList());
     }
 
     public static List<Integer> compile(List<String> sourceCode)  throws ParseException, IllegalArgumentException {
@@ -257,8 +257,8 @@ public class Compiler {
         codeCopy.add("");
 
         String joinedString = codeCopy.stream()
-                                      .collect(Collectors.joining("\n"))
-                                      .replaceAll("#|//(~[\\n])*","");
+            .collect(Collectors.joining("\n"))
+            .replaceAll("#|//(~[\\n])*","");
 
         System.out.println(joinedString);                                      
 
