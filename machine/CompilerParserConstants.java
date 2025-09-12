@@ -75,6 +75,8 @@ public interface CompilerParserConstants {
     "\":\"",
     "\";\"",
     "\"begin:\"",
+    "\"[\"",
+    "\"]\"",
     "\"{\"",
     "\"}\"",
     "\"(\"",

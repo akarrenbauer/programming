@@ -40,6 +40,14 @@ public class Segment extends ArrayList<Number>
         }
     }
 
+    public Number getEntry(String id, int o) {
+        if( identifiers.containsKey(id) ) {
+            return identifiers.get(id).offset(o);
+        } else {
+            return null;
+        }
+    }
+
     public void placeEntry(Number label) {
         label.setValue(size());
     }

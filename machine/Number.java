@@ -19,6 +19,10 @@ class Number {
     Number( String s ) {
         this.value = Integer.parseInt(s);
     }
+    
+    Number offset( int o ) {
+        return new Number(this.value + o);
+    }
 
     int getValue() {
         return value;

@@ -253,14 +253,17 @@ public class Compiler {
     public static List<Integer> compile(List<String> sourceCode)  throws ParseException, IllegalArgumentException {
         List<String> preprocessedCode = preProcess( sourceCode );
 
+        int lineNumber = 1;
+        for( String line : preprocessedCode ) {
+            System.out.printf("%4d\t%s%n", lineNumber++, line);
+        }
+        
         List<String> codeCopy = new ArrayList<>( preprocessedCode );
         codeCopy.add("");
-
+        
         String joinedString = codeCopy.stream()
             .collect(Collectors.joining("\n"))
             .replaceAll("#|//(~[\\n])*","");
-
-        System.out.println(joinedString);                                      
 
         CompilerParser parser = new CompilerParser(new ByteArrayInputStream(joinedString.getBytes(StandardCharsets.UTF_8)));
         return parser.Program().stream().map(e -> Integer.valueOf(e.getValue())).collect(Collectors.toList());

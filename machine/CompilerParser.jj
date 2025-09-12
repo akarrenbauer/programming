@@ -76,15 +76,17 @@ List<Number> Program() : {
 }
 
 void GlobalVariableDeclaration() : {
-    Token id, rvalue;
+    Token id, rvalue, size, index;
+    int length = 1;
+    int offset = 0;
 } {
-    <VAR> id = <IDENTIFIER> <ASSIGN> (
+    <VAR> id = <IDENTIFIER> ( "[" size = <NUMBER> "]" { length = Integer.parseInt(size.image); } )? <ASSIGN> (
           rvalue = <NUMBER> {
-            Number variable = dataSegment.newVariable(id.image, rvalue.image);
+            Number variable = dataSegment.newVariable(id.image, length, rvalue.image);
         }
-        | rvalue = <IDENTIFIER> {
-            Number right  = dataSegment.getVariable(rvalue.image);
-            Number variable = dataSegment.newVariable(id.image, right.getValue());
+        | rvalue = <IDENTIFIER> ( "[" index = <NUMBER> "]" { offset = Integer.parseInt(index.image); } )? {
+            Number right  = dataSegment.getVariable(rvalue.image, offset);
+            Number variable = dataSegment.newVariable(id.image, length, right.getValue());
         }
     )
 }
@@ -178,35 +180,42 @@ void Statement() : {
 }
 
 void LocalVariableDeclaration() : {
-    Token id, rvalue;
+    Token id, rvalue, size, index;
+    int length = 1;
+    int offset = 0;
 } {
-    <VAR> id = <IDENTIFIER> <ASSIGN> (
+    <VAR> id = <IDENTIFIER> ( "[" size = <NUMBER> "]" { length = Integer.parseInt(size.image); } )? <ASSIGN> (
           rvalue = <NUMBER> {
-            Number variable = dataSegment.newVariable(id.image, rvalue.image);
-            codeSegment.addClear(variable);
+            Number base = dataSegment.newVariable(id.image, length, rvalue.image);
             int value = Integer.parseInt(rvalue.image);
-            for( int i = 0; i < value; ++i ) {
-                codeSegment.addINC(variable);
+            for( int j = 0; j < length; ++j ) {
+                Number variable = base.offset(j);
+                codeSegment.addClear(variable);
+                for( int i = 0; i < value; ++i ) {
+                    codeSegment.addINC(variable);
+                }
             }
         }
-        | rvalue = <IDENTIFIER> {
-            Number left   = dataSegment.newVariable(id.image, 0);
+        | rvalue = <IDENTIFIER> ( "[" index = <NUMBER> "]" { offset = Integer.parseInt(index.image); } )? {
+            Number left   = dataSegment.newVariable(id.image, length, 0);
             Number middle = dataSegment.newVariable(0);
-            Number right  = dataSegment.getVariable(rvalue.image);
-            codeSegment.addClear(left);
-            codeSegment.addClear(middle);
-            codeSegment.addINC(right);
-            Number cloneLoop = codeSegment.newLabel();
-            codeSegment.addINC(left);
-            codeSegment.addINC(middle);
-            codeSegment.addDEC(right);
-            codeSegment.addJNZ(right, cloneLoop);
-            codeSegment.addDEC(left);
-            Number restoreLoop = codeSegment.newLabel();
-            codeSegment.addINC(right);
-            codeSegment.addDEC(middle);
-            codeSegment.addJNZ(middle, restoreLoop);
-            codeSegment.addDEC(right);
+            Number right  = dataSegment.getVariable(rvalue.image, offset);
+            for( int j = 0; j < length; ++j ) {
+                codeSegment.addClear(left.offset(j));
+                codeSegment.addClear(middle);
+                codeSegment.addINC(right);
+                Number cloneLoop = codeSegment.newLabel();
+                codeSegment.addINC(left.offset(j));
+                codeSegment.addINC(middle);
+                codeSegment.addDEC(right);
+                codeSegment.addJNZ(right, cloneLoop);
+                codeSegment.addDEC(left.offset(j));
+                Number restoreLoop = codeSegment.newLabel();
+                codeSegment.addINC(right);
+                codeSegment.addDEC(middle);
+                codeSegment.addJNZ(middle, restoreLoop);
+                codeSegment.addDEC(right);
+            }
         }
     )
 }
@@ -248,10 +257,11 @@ Number DoWhileCondition() : {
 }
 
 Number Lhs() : {
-    Token lhs;
+    Token lhs, index;
+    int offset = 0;
 } {
-      lhs = <IDENTIFIER> {
-        return dataSegment.getVariable(lhs.image);
+      lhs = <IDENTIFIER> ( "[" index = <NUMBER> "]" { offset = Integer.parseInt(index.image); } )? {
+        return dataSegment.getVariable(lhs.image, offset);
       }
     | lhs = <NUMBER> {
         return dataSegment.newVariable(Integer.parseInt(lhs.image));
@@ -281,10 +291,11 @@ Number IfCondition() : {
 
 
 Number Variable() : {
-    Token id;
+    Token id, index;
+    int offset = 0;
 } {
-    id = <IDENTIFIER> {
-        return dataSegment.getVariable(id.image);
+    id = <IDENTIFIER> ( "[" index = <NUMBER> "]" { offset = Integer.parseInt(index.image); } )? {
+        return dataSegment.getVariable(id.image, offset);
     }
 }
 
