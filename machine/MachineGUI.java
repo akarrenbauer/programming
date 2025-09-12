@@ -27,6 +27,11 @@ import javafx.util.converter.IntegerStringConverter;
 import javafx.stage.Stage;
 import javafx.stage.FileChooser;
 
+import javafx.animation.AnimationTimer;
+import javafx.application.Platform;
+import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonType;
+
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -42,8 +47,12 @@ public class MachineGUI extends Application {
     private ScrollBar vScrollBar;
     private Stage currentStage;
 
-    private String sourceFile;
+    private AnimationTimer runTimer;
+    private volatile boolean stopRequested = false;
 
+    private Label stepCounterLabel;
+
+    private String sourceFile;
     public static void main(String[] args) {
         launch(args);
     }
@@ -135,21 +144,27 @@ public class MachineGUI extends Application {
     private Scene createScene(Stage primaryStage) {
 
         Button saveButton = new Button("Save");
+        Button loadButton = new Button("Load");
+        Button reloadButton = new Button("Reload");
+        Button compileButton = new Button("Compile");
+        Button recompileButton = new Button("Recompile");
+        Button resetButton = new Button("Reset");
+        Button runButton = new Button("Run");
+        Button stopButton = new Button("Stop");
+        Button stepButton = new Button("Step");
+        Button stepNButton = new Button("Step n");
+
         saveButton.setOnAction(e -> saveMemoryToFile());
 
-        Button loadButton = new Button("Load");
         loadButton.setOnAction(e -> loadMemoryFromFile(primaryStage));
 
-        Button reloadButton = new Button("Reload");
         reloadButton.setOnAction(e -> {
                     machine.reload();
                     updateMemoryDisplay();
             });
 
-        Button compileButton = new Button("Compile");
         compileButton.setOnAction(e -> compileMemoryFromFile(primaryStage));
 
-        Button recompileButton = new Button("Recompile");
         recompileButton.setOnAction(e -> {
                     try {
                         machine.load( Compiler.compile( sourceFile ) );
@@ -160,31 +175,98 @@ public class MachineGUI extends Application {
                     updateMemoryDisplay();
             });
 
-        Button resetButton = new Button("Reset");
         resetButton.setOnAction(e -> {
                     machine.reset();
                     updateMemoryDisplay();
             });
 
-        Button runButton = new Button("Run");
-        runButton.setOnAction(e -> {
-                    machine.run();
+        stopButton.setDisable(true); // only enabled while running
+        stopButton.setOnAction(e -> {
+                    // Stop right now ? don?t wait for next frame
+                    finishRun(runButton, stopButton, stepButton, stepNButton );
+            });
+
+        stepButton.setOnAction(e -> {
+                    if (runTimer != null) return; // ignore while running
+                    machine.step();
                     updateMemoryDisplay();
             });
 
-        Button stepButton = new Button("Step");
-        stepButton.setOnAction(e -> {
-                    machine.step();
-                    updateMemoryDisplay();
+        stepNButton.setOnAction(e -> {
+                    TextInputDialog dialog = new TextInputDialog("1");
+                    dialog.setTitle("Step n");
+                    dialog.setHeaderText("How many steps?");
+                    dialog.setContentText("n:");
+
+                    dialog.showAndWait().ifPresent(input -> {
+                                try {
+                                    int n = Integer.parseInt(input.trim());
+                                    if (n < 0) throw new NumberFormatException("negative");
+                                    machine.step(n);
+                                    updateMemoryDisplay();
+                                } catch (NumberFormatException ex) {
+                                    Alert alert = new Alert(Alert.AlertType.ERROR, "Please enter a non-negative integer.", ButtonType.OK);
+                                    alert.setTitle("Invalid number");
+                                    alert.setHeaderText("Invalid number");
+                                    alert.showAndWait();
+                                }
+                        });
+            });
+
+        runButton.setOnAction(e -> {
+                    if (machine.isHalted()) {
+                        new Alert(Alert.AlertType.INFORMATION, "Machine is already halted.", ButtonType.OK).showAndWait();
+                        return;
+                    }
+                    if (runTimer != null) return;   // already running
+
+                    stopRequested = false;
+
+                    // UI while running
+                    runButton.setDisable(true);
+                    stopButton.setDisable(false);
+                    stepButton.setDisable(true);
+                    // if you have stepN: stepNButton.setDisable(true);
+
+                    runTimer = new AnimationTimer() {
+                        private long lastUpdateNs = 0;
+
+                        @Override
+                        public void handle(long now) {
+                            if (stopRequested || machine.isHalted()) {
+                                finishRun(runButton, stopButton, stepButton, stepNButton );
+                                return;
+                            }
+                            try {
+                                machine.step(10000);
+                            } catch (Exception ex) {
+                                // stop & report
+                                finishRun(runButton, stopButton, stepButton, stepNButton );
+                                new Alert(Alert.AlertType.ERROR, "Error while stepping:\n" + ex.getMessage(), ButtonType.OK).showAndWait();
+                                return;
+                            }
+
+                            // Throttle UI refresh ~20 fps
+                            if (now - lastUpdateNs > 50_000_000L) {
+                                updateMemoryDisplay();
+                                lastUpdateNs = now;
+                            }
+                        }
+                    };
+                    runTimer.start();
             });
 
         // Initialize the instruction symbol label
         instructionSymbolLabel = new Label(machine.getInstructionSymbolAndArguments());
         instructionSymbolLabel.setStyle("-fx-padding: 5px;");
 
-        // Create processor VBox and add both labels
-        VBox processor = new VBox(1, cpuLabel, instructionSymbolLabel);
-        processor.setAlignment(Pos.CENTER_LEFT); // Align contents vertically to the center.
+        // NEW: step counter label
+        stepCounterLabel = new Label("Steps executed: " + machine.getStepCounter());
+        stepCounterLabel.setStyle("-fx-padding: 5px;");
+
+        // Create processor VBox and add all labels
+        VBox processor = new VBox(1, cpuLabel, instructionSymbolLabel, stepCounterLabel);
+        processor.setAlignment(Pos.CENTER_LEFT);
 
         HBox hbox = new HBox(2, memoryTable, processor);
         HBox.setHgrow(memoryTable, Priority.ALWAYS);
@@ -193,12 +275,38 @@ public class MachineGUI extends Application {
 
         customPane.getChildren().add(hbox);
 
-        HBox buttonBox = new HBox(5, saveButton, loadButton, reloadButton, compileButton, recompileButton, resetButton, runButton, stepButton);
+        HBox buttonBox = new HBox(5, saveButton, loadButton, reloadButton, compileButton, recompileButton, resetButton, runButton, stopButton, stepButton, stepNButton);
         VBox vbox = new VBox(2, buttonBox, customPane);
         VBox.setVgrow(customPane, Priority.ALWAYS);
         memoryTable.prefHeightProperty().bind(vbox.heightProperty().subtract(buttonBox.heightProperty()).subtract(20));
 
-        return new Scene(vbox, 600, 450);
+        return new Scene(vbox, 800, 450);
+    }
+
+    private void stopRunnerIfActive(Button runButton, Button stopButton, Button stepButton, Button stepNButton ) {
+        stopRequested = true;
+        if (runTimer != null) {
+            runTimer.stop();
+            runTimer = null;
+        }
+        runButton.setDisable(false);
+        stopButton.setDisable(true);
+        stepButton.setDisable(false);
+        stepNButton.setDisable(false);
+        updateMemoryDisplay();
+    }
+
+    private void finishRun(Button runButton, Button stopButton, Button stepButton, Button stepNButton ) {
+        if (runTimer != null) {
+            try { runTimer.stop(); } catch (Exception ignore) {}
+            runTimer = null;
+        }
+        stopRequested = false;             // clear the flag so Step works again
+        runButton.setDisable(false);
+        stopButton.setDisable(true);
+        stepButton.setDisable(false);
+        stepNButton.setDisable(false);
+        updateMemoryDisplay();
     }
 
     // Save memory data to a file
@@ -262,6 +370,7 @@ public class MachineGUI extends Application {
             memoryData.add(new MemoryEntry(i, machine.get(i)));
         }
         scrollToInstructionPointer();
+        stepCounterLabel.setText("Steps executed: " + machine.getStepCounter());
     }
 
     protected void scrollToInstructionPointer() {
@@ -343,6 +452,9 @@ public class MachineGUI extends Application {
             super.layoutChildren();
 
             instructionSymbolLabel.setText(machine.getInstructionSymbolAndArguments());
+
+            // NEW: keep the step counter in sync
+            stepCounterLabel.setText("Steps executed: " + machine.getStepCounter());
 
             Node node = memoryTable.lookup(".instruction-pointer-register");
             if( node instanceof TableRow ) {

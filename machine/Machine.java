@@ -24,6 +24,8 @@ public class Machine
     private int verbosity;
     private String filename;
 
+    private int stepCounter = 0;
+
     /**
      * Constructor for objects of class Machine
      * 
@@ -37,8 +39,9 @@ public class Machine
 
     public void reset() {
         S = new ArrayList<Integer>();
+        stepCounter = 0;
     }
-    
+
     /**
      * Returns the value stored at the given index 
      * 
@@ -83,6 +86,15 @@ public class Machine
      */
     public int getInstruction() {
         return get(getInstructionPointer());
+    }
+
+    /**
+     * Returns whether the next instruction is HALT
+     * 
+     * @return          true if the next instruction is HALT, false otherwise
+     */
+    public boolean isHalted() {
+        return getInstruction() == 0;
     }
 
     /**
@@ -145,14 +157,14 @@ public class Machine
     /**
      * Executes the current instruction
      */
-    public void step() {
+    public void step() {    
         int i = get(0);
         int opcode = get(i);
         if(verbosity > 0) {
             System.out.print( getInstructionSymbol() );
         }
         switch(opcode) {
-            case 0: break;
+            case 0: return;
             case 1: set(0,++i);
                 break;
             case 2: {
@@ -184,10 +196,21 @@ public class Machine
                 }
         }
 
+        ++stepCounter;
+
         if(verbosity > 0 ) {
             System.out.println();
         }
     }   
+
+    /**
+     * Executes the next n instructions
+     */
+    public void step(int n) {
+        for( int i = 0; i < n && getInstruction() != 0; ++i ) {
+            step();
+        }
+    }
 
     /**
      * Prints the content of the memory
@@ -245,8 +268,9 @@ public class Machine
      */
     public void load( List<Integer> list ) {
         S = (ArrayList<Integer>) list;
+        stepCounter = 0;
     }
-    
+
     /**
      * Reads the memory from file
      * 
@@ -254,6 +278,7 @@ public class Machine
      *                  integer
      */
     public void load(String filename) {
+        stepCounter = 0;
         this.filename = filename;
         S = new ArrayList<Integer>();
         try (BufferedReader br = new BufferedReader(new FileReader(filename))) {
@@ -323,4 +348,12 @@ public class Machine
         return S.size();
     }
 
+    /**
+     * Returns the current step counter.
+     * 
+     * @return the current step counter
+     */
+    public int getStepCounter() {
+        return stepCounter;
+    }
 }
