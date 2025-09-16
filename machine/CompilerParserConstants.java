@@ -33,19 +33,21 @@ public interface CompilerParserConstants {
   /** RegularExpression Id. */
   int ELSE = 15;
   /** RegularExpression Id. */
-  int IDENTIFIER = 16;
+  int VOID = 16;
   /** RegularExpression Id. */
-  int NUMBER = 17;
+  int IDENTIFIER = 17;
   /** RegularExpression Id. */
-  int NEQ = 18;
+  int NUMBER = 18;
   /** RegularExpression Id. */
-  int EQ = 19;
+  int NEQ = 19;
   /** RegularExpression Id. */
-  int COLON = 20;
+  int EQ = 20;
   /** RegularExpression Id. */
-  int EOS = 21;
+  int COLON = 21;
   /** RegularExpression Id. */
-  int BEGIN = 22;
+  int EOS = 22;
+  /** RegularExpression Id. */
+  int BEGIN = 23;
 
   /** Lexical state. */
   int DEFAULT = 0;
@@ -68,6 +70,7 @@ public interface CompilerParserConstants {
     "\"while\"",
     "\"if\"",
     "\"else\"",
+    "\"void\"",
     "<IDENTIFIER>",
     "<NUMBER>",
     "\"!=\"",
@@ -75,12 +78,13 @@ public interface CompilerParserConstants {
     "\":\"",
     "\";\"",
     "\"begin:\"",
-    "\"[\"",
-    "\"]\"",
     "\"{\"",
     "\"}\"",
+    "\"[\"",
+    "\"]\"",
     "\"(\"",
     "\")\"",
+    "\",\"",
   };
 
 }

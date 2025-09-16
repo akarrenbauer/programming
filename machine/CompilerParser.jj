@@ -48,6 +48,7 @@ TOKEN : {
   | < WHILE : "while" >
   | < IF : "if" >
   | < ELSE : "else" >
+  | < VOID : "void" >
   | < IDENTIFIER : ["a"-"z","A"-"Z","_"] ( ["a"-"z","A"-"Z","_","0"-"9"] )* >
   | < NUMBER : ( ["0"-"9"] )+ >
   | < NEQ : "!=" >
@@ -62,6 +63,7 @@ List<Number> Program() : {
     {
         dataSegment.add(codeSegment.newLabel("begin"));
     }
+    ( MacroDefinition() )*
     ( GlobalVariableDeclaration() <EOS> )*
     <BEGIN> {
         codeSegment.placeLabel("begin");
@@ -73,6 +75,13 @@ List<Number> Program() : {
         byteCode.addAll(codeSegment);
         return byteCode;
     }
+}
+
+void MacroDefinition() : {
+}{
+    <VOID> Macro() "{"
+            StatementsOrBlocks()
+    "}"
 }
 
 void GlobalVariableDeclaration() : {
@@ -99,7 +108,7 @@ void StatementsOrBlocks() : {
 
 void StatementOrBlock() : {
 } {
-    UnlabeledStatementOrBlock() | ( LabelDeclaration() )+ UnlabeledStatementOrBlock()
+    LOOKAHEAD(2) UnlabeledStatementOrBlock() | ( LOOKAHEAD(2) LabelDeclaration() )+ UnlabeledStatementOrBlock()
 }
 
 
@@ -176,7 +185,12 @@ void IfElseBlock() : {
 
 void Statement() : {
 } {
-      ( LocalVariableDeclaration() | Command() )? <EOS>
+      ( LocalVariableDeclaration() | Command() | Macro() )? <EOS>
+}
+
+void Macro() : {
+}{
+    <IDENTIFIER> "(" (<NUMBER> | <IDENTIFIER>)? ("," (<NUMBER> | <IDENTIFIER>) )* ")"
 }
 
 void LocalVariableDeclaration() : {

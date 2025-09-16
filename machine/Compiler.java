@@ -22,13 +22,17 @@ public class Compiler {
             System.exit(1);
         }
 
-        List<Integer> bytecode = compile(args[0]);
-        if (bytecode == null) {
-            System.err.println("Error: Could not read the source file.");
-            System.exit(1);
+        try
+        {
+            List<Integer> bytecode = compile(args[0]);
+            if (bytecode == null) {
+                System.err.println("Error: Could not read the source file.");
+                System.exit(1);
+            }
+            writeBytecodeToFile(bytecode, "bytecode.txt");
+        } catch (IOException e) {
+            System.err.println("Error reading the source file: " + args[0]);
         }
-
-        writeBytecodeToFile(bytecode, "bytecode.txt");
     }
 
     private static void writeBytecodeToFile(List<Integer> bytecode, String outputPath) {
@@ -43,15 +47,9 @@ public class Compiler {
         }
     }
 
-    public static List<Integer> compile(String inputFilePath) throws ParseException {
-        try {
-            List<String> sourceCode = Files.readAllLines(Paths.get(inputFilePath));
-            return compile(sourceCode);
-        } catch (IOException e) {
-            System.err.println("Error reading the source file: " + inputFilePath);
-            e.printStackTrace();
-        }
-        return new ArrayList<>();
+    public static List<Integer> compile(String inputFilePath) throws ParseException, IOException {
+        List<String> sourceCode = Files.readAllLines(Paths.get(inputFilePath));
+        return compile(sourceCode);
     }
 
     public static boolean matchingSignature(String[] argumentList, String[] parameterList) {
@@ -66,14 +64,26 @@ public class Compiler {
         return true;
     }
 
-    public static List<String> preProcess( List<String> sourceCode ) throws IllegalArgumentException {
+    public static List<String> preProcess( List<String> sourceCode ) throws ParseException, IOException, IllegalArgumentException {
 
         List<String> strippedSourceCode = stripComments(includeImports(sourceCode));
 
+        int lineNumber = 1;
+        for( String line : strippedSourceCode ) {
+            System.out.printf("%4d\t%s%n", lineNumber++, line);
+        }
+
+        List<String> codeCopy = new ArrayList<>( strippedSourceCode );
+        codeCopy.add("");
+
+        String joinedString = codeCopy.stream()
+            .collect(Collectors.joining("\n"))
+            .replaceAll("#|//(~[\\n])*","");
+
+        new CompilerParser(new StringReader(joinedString)).Program();
+
         Map<String, List<String>> macroMap = new HashMap<>();
-
         int labelCounter = 0;
-
         // Iterate through source code to find and replace macro definitions and calls
         for (int i = strippedSourceCode.size() - 1; i >= 0; --i) {
             String line = strippedSourceCode.get(i).trim();
@@ -213,7 +223,7 @@ public class Compiler {
         return output;
     }
 
-    public static List<String> includeImports( List<String> sourceCode ) throws IllegalArgumentException {
+    public static List<String> includeImports( List<String> sourceCode ) throws IOException, IllegalArgumentException {
         List<String> output = new ArrayList<>();
 
         for( String sourceLine : sourceCode ) {
@@ -223,13 +233,8 @@ public class Compiler {
             if (line.startsWith("import")) {
                 if( line.contains("\"") && line.endsWith("\";") ) {
                     String filename = line.substring(line.indexOf('"') + 1, line.lastIndexOf('"')).trim();
-                    try {
-                        List<String> importedLines = Files.readAllLines(Paths.get(filename));
-                        output.addAll(importedLines);
-                    } catch (IOException e) {
-                        System.err.println("Error importing file: " + filename);
-                        e.printStackTrace();
-                    }
+                    List<String> importedLines = Files.readAllLines(Paths.get(filename));
+                    output.addAll(importedLines);
                 } else {
                     throw new IllegalArgumentException("import keyword must be followed by \"/path/to/file\": " + line);
                 }
@@ -250,17 +255,12 @@ public class Compiler {
         .collect(Collectors.toList());
     }
 
-    public static List<Integer> compile(List<String> sourceCode)  throws ParseException, IllegalArgumentException {
+    public static List<Integer> compile(List<String> sourceCode)  throws IOException, ParseException, IllegalArgumentException {
         List<String> preprocessedCode = preProcess( sourceCode );
 
-        int lineNumber = 1;
-        for( String line : preprocessedCode ) {
-            System.out.printf("%4d\t%s%n", lineNumber++, line);
-        }
-        
         List<String> codeCopy = new ArrayList<>( preprocessedCode );
         codeCopy.add("");
-        
+
         String joinedString = codeCopy.stream()
             .collect(Collectors.joining("\n"))
             .replaceAll("#|//(~[\\n])*","");

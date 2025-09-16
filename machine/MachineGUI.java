@@ -168,9 +168,18 @@ public class MachineGUI extends Application {
         recompileButton.setOnAction(e -> {
                     try {
                         machine.load( Compiler.compile( sourceFile ) );
-                    } catch(ParseException excptn ) {
-                        System.out.println( excptn.getMessage() );
-                        excptn.printStackTrace();
+                    } catch(IOException exception ) {
+                        System.err.println( exception.getMessage() );
+                        Alert alert = new Alert(Alert.AlertType.ERROR, exception.getMessage(), ButtonType.OK);
+                        alert.setTitle("File Error");
+                        alert.setHeaderText("File Error");
+                        alert.showAndWait();
+                    } catch(ParseException exception ) {
+                        System.err.println( exception.getMessage() );
+                        Alert alert = new Alert(Alert.AlertType.ERROR, exception.getMessage(), ButtonType.OK);
+                        alert.setTitle("Parse Error");
+                        alert.setHeaderText("Parse Error");
+                        alert.showAndWait();
                     }
                     updateMemoryDisplay();
             });
@@ -351,9 +360,18 @@ public class MachineGUI extends Application {
             sourceFile = selectedFile.getAbsolutePath();
             try {
                 machine.load( Compiler.compile( sourceFile ) );
-            } catch(ParseException excptn ) {
-                System.out.println( excptn.getMessage() );
-                excptn.printStackTrace();
+            } catch(IOException exception ) {
+                System.err.println( exception.getMessage() );
+                Alert alert = new Alert(Alert.AlertType.ERROR, exception.getMessage(), ButtonType.OK);
+                alert.setTitle("File Error");
+                alert.setHeaderText("File Error");
+                alert.showAndWait();
+            } catch(ParseException exception ) {
+                System.err.println( exception.getMessage() );
+                Alert alert = new Alert(Alert.AlertType.ERROR, exception.getMessage(), ButtonType.OK);
+                alert.setTitle("Parse Error");
+                alert.setHeaderText("Parse Error");
+                alert.showAndWait();
             }
             updateMemoryDisplay();
             //refreshScene(primaryStage);
