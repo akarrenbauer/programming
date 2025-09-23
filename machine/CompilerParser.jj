@@ -25,6 +25,15 @@ public class CompilerParser {
         CompilerParser parser = new CompilerParser(System.in);
         parser.Program(false);
     }
+
+    String getImage( Token t ) {
+        StringBuilder sb = new StringBuilder();
+        for( Token tt = t; tt != null; tt = tt.next ) {
+            sb.append(tt.image);
+        }
+        return sb.toString();
+    }
+
 }
 
 PARSER_END(CompilerParser)
@@ -196,7 +205,7 @@ void Macro() : {
 }{
     name = <IDENTIFIER> "(" (<NUMBER> | <IDENTIFIER>)? ("," (<NUMBER> | <IDENTIFIER>) )* ")" {
         if( !preflight ) {
-            throw new ParseException( "Macro substitution failed!" + name.image);
+            throw new ParseException( "Macro substitution failed!\n" + getImage(name));
         }
     }
 }
