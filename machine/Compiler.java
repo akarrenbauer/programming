@@ -80,7 +80,7 @@ public class Compiler {
             .collect(Collectors.joining("\n"))
             .replaceAll("#|//(~[\\n])*","");
 
-        new CompilerParser(new StringReader(joinedString)).Program();
+        new CompilerParser(new StringReader(joinedString)).Program(true);
 
         Map<String, List<String>> macroMap = new HashMap<>();
         int labelCounter = 0;
@@ -266,6 +266,6 @@ public class Compiler {
             .replaceAll("#|//(~[\\n])*","");
 
         CompilerParser parser = new CompilerParser(new ByteArrayInputStream(joinedString.getBytes(StandardCharsets.UTF_8)));
-        return parser.Program().stream().map(e -> Integer.valueOf(e.getValue())).collect(Collectors.toList());
+        return parser.Program(false).stream().map(e -> Integer.valueOf(e.getValue())).collect(Collectors.toList());
     }
 }

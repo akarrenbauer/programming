@@ -15,6 +15,8 @@ import java.util.HashMap;
 
 public class CompilerParser {
 
+    private boolean preflight = false;
+
     private List<Number> byteCode = new ArrayList<>();
     private CodeSegment codeSegment = new CodeSegment();
     private DataSegment dataSegment = new DataSegment();
@@ -58,9 +60,10 @@ TOKEN : {
   | < BEGIN : "begin:" >
 }
 
-List<Number> Program() : {
+List<Number> Program( boolean preflight ) : {
 } {
     {
+        this.preflight = preflight;
         dataSegment.add(codeSegment.newLabel("begin"));
     }
     ( MacroDefinition() )*
@@ -190,7 +193,11 @@ void Statement() : {
 
 void Macro() : {
 }{
-    <IDENTIFIER> "(" (<NUMBER> | <IDENTIFIER>)? ("," (<NUMBER> | <IDENTIFIER>) )* ")"
+    <IDENTIFIER> "(" (<NUMBER> | <IDENTIFIER>)? ("," (<NUMBER> | <IDENTIFIER>) )* ")" {
+        if( !preflight ) {
+            throw new ParseException( "Macro substitution failed!");
+        }
+    }
 }
 
 void LocalVariableDeclaration() : {
