@@ -203,7 +203,7 @@ void Statement() : {
 void Macro() : {
     Token name;
 }{
-    name = <IDENTIFIER> "(" (<NUMBER> | <IDENTIFIER>)? ("," (<NUMBER> | <IDENTIFIER>) )* ")" {
+    name = <IDENTIFIER> "(" (<NUMBER> | <IDENTIFIER> ( "[" <NUMBER> "]" )? )? ("," (<NUMBER> | <IDENTIFIER> ( "[" <NUMBER> "]" )? ) )* ")" {
         if( !preflight ) {
             throw new ParseException( "Macro substitution failed!\n" + getImage(name));
         }
