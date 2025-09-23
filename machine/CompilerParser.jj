@@ -195,7 +195,7 @@ void Macro() : {
 }{
     <IDENTIFIER> "(" (<NUMBER> | <IDENTIFIER>)? ("," (<NUMBER> | <IDENTIFIER>) )* ")" {
         if( !preflight ) {
-            throw new ParseException( "Macro substitution failed!" + token.image);
+            throw new ParseException( "Macro substitution failed!" + token.image + getToken(0).image + getToken(1).image + getToken(2).image);
         }
     }
 }

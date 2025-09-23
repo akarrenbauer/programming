@@ -19,7 +19,7 @@ public class CompilerParser implements CompilerParserConstants {
 
     public static void main(String[] args) throws ParseException {
         CompilerParser parser = new CompilerParser(System.in);
-        parser.Program();
+        parser.Program(false);
     }
 
   final public List<Number> Program(boolean preflight) throws ParseException {
@@ -378,7 +378,7 @@ if( !hasElse ) {
     }
     jj_consume_token(29);
 if( !preflight ) {
-            {if (true) throw new ParseException( "Macro substitution failed!" + token.image);}
+            {if (true) throw new ParseException( "Macro substitution failed!" + token.image + getToken(0).image + getToken(1).image + getToken(2).image);}
         }
 }
 
