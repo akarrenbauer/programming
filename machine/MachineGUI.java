@@ -15,6 +15,7 @@ import javafx.scene.Scene;
 import javafx.scene.Node;
 import javafx.scene.paint.Color;
 import javafx.scene.input.MouseButton;
+import javafx.scene.input.*;
 import javafx.scene.layout.VBox;
 import javafx.scene.layout.Region;
 import javafx.scene.control.cell.TextFieldTableCell;
@@ -41,6 +42,7 @@ public class MachineGUI extends Application {
     private final Machine machine = new Machine();
     private TableView<MemoryEntry> memoryTable;
     private ObservableList<MemoryEntry> memoryData;
+    StackPane tableWithTopBtn;
     private Label cpuLabel;
     private Label instructionSymbolLabel;
     private CustomPane customPane;
@@ -86,6 +88,29 @@ public class MachineGUI extends Application {
                         });
                     return row;
             });
+
+        Node contentNode = memoryTable;
+
+        // Wrap with an overlay container
+        tableWithTopBtn = new StackPane(contentNode);
+
+        Button toTopBtn = new Button("T");
+        toTopBtn.setFocusTraversable(false);
+        toTopBtn.setTooltip(new Tooltip("Scroll to top"));
+        toTopBtn.getStyleClass().add("table-top-btn"); // optional style
+
+        toTopBtn.setOnAction(e -> {
+                    memoryTable.scrollTo(0);
+            });
+
+        // Position at top-right
+        StackPane.setAlignment(toTopBtn, Pos.TOP_RIGHT);
+
+        tableWithTopBtn.getChildren().add(toTopBtn);
+        tableWithTopBtn.setStyle("""
+                -fx-padding: 2 8 2 8;
+                -fx-font-size: 11px;
+                -fx-background-radius: 14;""");
 
         memoryData = FXCollections.observableArrayList();
         memoryData.add( new MemoryEntry(0, 0 ) );
@@ -277,8 +302,8 @@ public class MachineGUI extends Application {
         VBox processor = new VBox(1, cpuLabel, instructionSymbolLabel, stepCounterLabel);
         processor.setAlignment(Pos.CENTER_LEFT);
 
-        HBox hbox = new HBox(2, memoryTable, processor);
-        HBox.setHgrow(memoryTable, Priority.ALWAYS);
+        HBox hbox = new HBox(2, tableWithTopBtn, processor);
+        HBox.setHgrow(tableWithTopBtn, Priority.ALWAYS);
         HBox.setHgrow(processor, Priority.NEVER);
         HBox.setMargin(processor, new Insets(0, 0, 0, 50)); // Add some spacing between the table and the box.
 
@@ -287,9 +312,17 @@ public class MachineGUI extends Application {
         HBox buttonBox = new HBox(5, saveButton, loadButton, reloadButton, compileButton, recompileButton, resetButton, runButton, stopButton, stepButton, stepNButton);
         VBox vbox = new VBox(2, buttonBox, customPane);
         VBox.setVgrow(customPane, Priority.ALWAYS);
-        memoryTable.prefHeightProperty().bind(vbox.heightProperty().subtract(buttonBox.heightProperty()).subtract(20));
+        tableWithTopBtn.prefHeightProperty().bind(vbox.heightProperty().subtract(buttonBox.heightProperty()).subtract(20));
 
-        return new Scene(vbox, 800, 450);
+        Scene scene = new Scene(vbox, 800, 450);
+        scene.getAccelerators().put(
+            new KeyCodeCombination(KeyCode.HOME),
+            () -> {
+                    memoryTable.scrollTo(0);
+            }
+        );
+
+        return scene;
     }
 
     private void stopRunnerIfActive(Button runButton, Button stopButton, Button stepButton, Button stepNButton ) {
@@ -368,6 +401,7 @@ public class MachineGUI extends Application {
                 alert.showAndWait();
             } catch(ParseException exception ) {
                 System.err.println( exception.getMessage() );
+                exception.printStackTrace();
                 Alert alert = new Alert(Alert.AlertType.ERROR, exception.getMessage(), ButtonType.OK);
                 alert.setTitle("Parse Error");
                 alert.setHeaderText("Parse Error");

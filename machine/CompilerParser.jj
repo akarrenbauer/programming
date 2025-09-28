@@ -21,6 +21,8 @@ public class CompilerParser {
     private CodeSegment codeSegment = new CodeSegment();
     private DataSegment dataSegment = new DataSegment();
 
+    private List<String> macroVariables = new ArrayList<>();
+
     public static void main(String[] args) throws ParseException {
         CompilerParser parser = new CompilerParser(System.in);
         parser.Program(false);
@@ -91,9 +93,11 @@ List<Number> Program( boolean preflight ) : {
 
 void MacroDefinition() : {
 }{
-    <VOID> Macro() "{"
+    <VOID> MacroSignature() "{"
             StatementsOrBlocks()
-    "}"
+    "}" {
+        macroVariables.clear();
+    }
 }
 
 void GlobalVariableDeclaration() : {
@@ -107,6 +111,9 @@ void GlobalVariableDeclaration() : {
         }
         | rvalue = <IDENTIFIER> ( "[" index = <NUMBER> "]" { offset = Integer.parseInt(index.image); } )? {
             Number right  = dataSegment.getVariable(rvalue.image, offset);
+            if( right == null ) {
+                throw new ParseException("Unknown variable " + rvalue.image + " in line " + rvalue.beginLine );
+            }
             Number variable = dataSegment.newVariable(id.image, length, right.getValue());
         }
     )
@@ -200,13 +207,31 @@ void Statement() : {
       ( LocalVariableDeclaration() | Command() | Macro() )? <EOS>
 }
 
-void Macro() : {
+void MacroSignature() : {
     Token name;
+    Token id;
 }{
-    name = <IDENTIFIER> "(" (<NUMBER> | <IDENTIFIER> ( "[" <NUMBER> "]" )? )? ("," (<NUMBER> | <IDENTIFIER> ( "[" <NUMBER> "]" )? ) )* ")" {
+    name = <IDENTIFIER> "(" (<NUMBER> | id = <IDENTIFIER> { macroVariables.add(id.image); } )?
+            ("," (<NUMBER> | id = <IDENTIFIER> { macroVariables.add(id.image); } ) )* ")" {
         if( !preflight ) {
             throw new ParseException( "Macro substitution failed!\n" + getImage(name));
         }
+    }
+}
+
+void Macro() : {
+    Token name;
+    Token id;
+}{
+    name = <IDENTIFIER> "(" (<NUMBER> | id = <IDENTIFIER> {
+            if( dataSegment.getVariable(id.image) == null && !macroVariables.contains(id.image) ) throw new ParseException("Unknown variable " + id.image + " in line " + id.beginLine );
+        } ( "[" <NUMBER> "]" )? )?
+            ("," (<NUMBER> | id = <IDENTIFIER> {
+            if( dataSegment.getVariable(id.image) == null && !macroVariables.contains(id.image) ) throw new ParseException("Unknown variable " + id.image + " in line " + id.beginLine );
+        } ( "[" <NUMBER> "]" )? ) )* ")" {
+            if( !preflight ) {
+                throw new ParseException( "Macro substitution failed!\n" + getImage(name));
+            }
     }
 }
 
@@ -215,37 +240,48 @@ void LocalVariableDeclaration() : {
     int length = 1;
     int offset = 0;
 } {
-    <VAR> id = <IDENTIFIER> ( "[" size = <NUMBER> "]" { length = Integer.parseInt(size.image); } )? <ASSIGN> (
+    <VAR> id = <IDENTIFIER> { macroVariables.add(id.image); } ( "[" size = <NUMBER> "]" { length = Integer.parseInt(size.image); } )? <ASSIGN> (
           rvalue = <NUMBER> {
-            Number base = dataSegment.newVariable(id.image, length, rvalue.image);
-            int value = Integer.parseInt(rvalue.image);
-            for( int j = 0; j < length; ++j ) {
-                Number variable = base.offset(j);
-                codeSegment.addClear(variable);
-                for( int i = 0; i < value; ++i ) {
-                    codeSegment.addINC(variable);
+            if( !preflight ) {
+                Number base = dataSegment.newVariable(id.image, length, rvalue.image);
+                int value = Integer.parseInt(rvalue.image);
+                for( int j = 0; j < length; ++j ) {
+                    Number variable = base.offset(j);
+                    codeSegment.addClear(variable);
+                    for( int i = 0; i < value; ++i ) {
+                        codeSegment.addINC(variable);
+                    }
                 }
             }
         }
         | rvalue = <IDENTIFIER> ( "[" index = <NUMBER> "]" { offset = Integer.parseInt(index.image); } )? {
-            Number left   = dataSegment.newVariable(id.image, length, 0);
-            Number middle = dataSegment.newVariable(0);
-            Number right  = dataSegment.getVariable(rvalue.image, offset);
-            for( int j = 0; j < length; ++j ) {
-                codeSegment.addClear(left.offset(j));
-                codeSegment.addClear(middle);
-                codeSegment.addINC(right);
-                Number cloneLoop = codeSegment.newLabel();
-                codeSegment.addINC(left.offset(j));
-                codeSegment.addINC(middle);
-                codeSegment.addDEC(right);
-                codeSegment.addJNZ(right, cloneLoop);
-                codeSegment.addDEC(left.offset(j));
-                Number restoreLoop = codeSegment.newLabel();
-                codeSegment.addINC(right);
-                codeSegment.addDEC(middle);
-                codeSegment.addJNZ(middle, restoreLoop);
-                codeSegment.addDEC(right);
+            if( !preflight ) {
+                Number left   = dataSegment.newVariable(id.image, length, 0);
+                Number middle = dataSegment.newVariable(0);
+                Number right  = dataSegment.getVariable(rvalue.image, offset);
+                if( right == null ) {
+                    if( !macroVariables.contains(rvalue.image) ) {
+                        throw new ParseException("Unknown variable " + rvalue.image + " in line " + rvalue.beginLine );
+                    } else {
+                        right = new Number(0);
+                    }
+                }
+                for( int j = 0; j < length; ++j ) {
+                    codeSegment.addClear(left.offset(j));
+                    codeSegment.addClear(middle);
+                    codeSegment.addINC(right);
+                    Number cloneLoop = codeSegment.newLabel();
+                    codeSegment.addINC(left.offset(j));
+                    codeSegment.addINC(middle);
+                    codeSegment.addDEC(right);
+                    codeSegment.addJNZ(right, cloneLoop);
+                    codeSegment.addDEC(left.offset(j));
+                    Number restoreLoop = codeSegment.newLabel();
+                    codeSegment.addINC(right);
+                    codeSegment.addDEC(middle);
+                    codeSegment.addJNZ(middle, restoreLoop);
+                    codeSegment.addDEC(right);
+                }
             }
         }
     )
@@ -292,7 +328,15 @@ Number Lhs() : {
     int offset = 0;
 } {
       lhs = <IDENTIFIER> ( "[" index = <NUMBER> "]" { offset = Integer.parseInt(index.image); } )? {
-        return dataSegment.getVariable(lhs.image, offset);
+        Number left = dataSegment.getVariable(lhs.image, offset);
+        if( left == null ) {
+            if( !macroVariables.contains(lhs.image) ) {
+                throw new ParseException("Unknown variable " + lhs.image + " in line " + lhs.beginLine );
+            } else {
+                left = new Number(0);
+            }
+        }
+        return left;
       }
     | lhs = <NUMBER> {
         return dataSegment.newVariable(Integer.parseInt(lhs.image));
@@ -326,7 +370,15 @@ Number Variable() : {
     int offset = 0;
 } {
     id = <IDENTIFIER> ( "[" index = <NUMBER> "]" { offset = Integer.parseInt(index.image); } )? {
-        return dataSegment.getVariable(id.image, offset);
+        Number val = dataSegment.getVariable(id.image, offset);
+        if( val == null ) {
+            if( !macroVariables.contains(id.image) ) {
+                throw new ParseException("Unknown variable " + id.image + " in line " + id.beginLine );
+            } else {
+                val = new Number(0);
+            }
+        }
+        return val;
     }
 }
 

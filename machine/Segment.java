@@ -36,7 +36,7 @@ public class Segment extends ArrayList<Number>
         if( identifiers.containsKey(id) ) {
             return identifiers.get(id);
         } else {
-            return newEntry(id);
+            return null;
         }
     }
 
