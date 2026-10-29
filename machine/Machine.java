@@ -262,12 +262,12 @@ public class Machine
     }
 
     /**
-     * Loads from memory
+     * Loads an independent, mutable copy of the supplied bytecode.
      * 
      * @param list  List containing the Bytecode
      */
     public void load( List<Integer> list ) {
-        S = (ArrayList<Integer>) list;
+        S = new ArrayList<>(list);
         stepCounter = 0;
     }
 
