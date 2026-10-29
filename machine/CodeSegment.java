@@ -1,9 +1,7 @@
 package machine;
 
-import java.util.List;
-import java.util.Map;
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 /**
  * Write a description of class CodeSegment here.
@@ -13,6 +11,8 @@ import java.util.HashMap;
  */
 public class CodeSegment extends Segment
 {
+    private final Set<String> unresolvedLabels = new LinkedHashSet<>();
+
     public void addINC( Number arg ) {
         add(Number.INC);
         add(arg);
@@ -40,15 +40,18 @@ public class CodeSegment extends Segment
     }
 
     public Number newLabel(String id) {
+        unresolvedLabels.add(id);
         return newEntry(id);
     }
 
     public Number getLabel(String id) {
-       return getEntry(id);
+        Number label = getEntry(id);
+        return label != null ? label : newLabel(id);
     }
 
     public void placeLabel(Number label) {
         label.setValue(size());
+        unresolvedLabels.removeIf(id -> getEntry(id) == label);
     }
 
     public void placeLabel(String id) {
@@ -57,6 +60,13 @@ public class CodeSegment extends Segment
             identifiers.get(id).setValue(address);
         } else {
             identifiers.put(id, new Number(address) );
+        }
+        unresolvedLabels.remove(id);
+    }
+
+    public void validateLabels() throws ParseException {
+        if( !unresolvedLabels.isEmpty() ) {
+            throw new ParseException("Unresolved labels: " + String.join(", ", unresolvedLabels));
         }
     }
     

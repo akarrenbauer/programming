@@ -84,6 +84,9 @@ List<Number> Program( boolean preflight ) : {
     }
     StatementsOrBlocks() 
     <EOF> {
+        if( !preflight ) {
+            codeSegment.validateLabels();
+        }
         byteCode.addAll(dataSegment);
         codeSegment.applyOffset( byteCode.size() );
         byteCode.addAll(codeSegment);
