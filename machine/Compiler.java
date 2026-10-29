@@ -93,7 +93,7 @@ public class Compiler {
                 if( line.contains("(") && line.contains(")")) {
                     String macroName = line.substring(5, line.indexOf('(')).trim();
                     String parameters = line.substring(line.indexOf('(') + 1, line.indexOf(')')).trim();
-                    String[] parameterList = parameters.split(",");
+                    String[] parameterList = parameters.isEmpty() ? new String[0] : parameters.split(",");
                     boolean[] nonconst = new boolean[parameterList.length];
 
                     Map<String, String> locals = new HashMap<>();
@@ -163,7 +163,7 @@ public class Compiler {
                             String currentLine = subLine.trim();
                             if (currentLine.startsWith(macroName) && currentLine.substring(macroName.length()).matches("\\s*\\(.*\\);")) {
                                 String arguments = currentLine.substring(currentLine.indexOf('(') + 1, currentLine.indexOf(')')).trim();
-                                String[] argumentList = arguments.split(",");
+                                String[] argumentList = arguments.isEmpty() ? new String[0] : arguments.split(",");
                                 if (matchingSignature(argumentList, parameterList)) {
                                     String expandedMacro = macroDefinition;
                                     for (int k = 0; k < argumentList.length; k++) {
