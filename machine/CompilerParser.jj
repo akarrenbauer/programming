@@ -217,7 +217,12 @@ void GlobalVariableDeclaration() : {
             if( right == null ) {
                 throw new ParseException("Unknown variable " + rvalue.image + " in line " + rvalue.beginLine );
             }
-            Number variable = dataSegment.newVariable(id.image, length, right.getValue());
+            int sourceAddress = right.getValue();
+            if( sourceAddress < 0 || sourceAddress >= dataSegment.size() ) {
+                throw new ParseException("Invalid initializer reference " + rvalue.image + "[" + offset + "] in line " + rvalue.beginLine);
+            }
+            int initialValue = dataSegment.get(sourceAddress).getValue();
+            Number variable = dataSegment.newVariable(id.image, length, initialValue);
         }
     )
 }
