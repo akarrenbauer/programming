@@ -181,7 +181,7 @@ public class Machine
                     if(verbosity > 0 ) {
                         System.out.print(" S[" + j + "]");
                     }
-                    set(j,Math.max(0,S.get(j)-1));
+                    set(j,Math.max(0,get(j)-1));
                     set(0,++i);
                     break;
                 }
