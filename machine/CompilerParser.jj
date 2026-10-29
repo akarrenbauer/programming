@@ -36,6 +36,68 @@ public class CompilerParser {
         return sb.toString();
     }
 
+    // Returns an address whose value is nonzero when the requested comparison holds.
+    private Number emitComparison(Number address, int value, boolean trueWhenEqual) {
+        if( value == 0 && !trueWhenEqual ) {
+            return address;
+        }
+
+        Number flag = dataSegment.newVariable(0);
+        codeSegment.addClear(flag);
+        if( value == 0 ) {
+            Number end = codeSegment.newLabel();
+            codeSegment.addJNZ(address, end);
+            codeSegment.addINC(flag);
+            codeSegment.placeLabel(end);
+            return flag;
+        }
+
+        // Private cells are restored to these initial values after every evaluation.
+        Number remaining = dataSegment.newVariable(value);
+        Number consumed = dataSegment.newVariable(0);
+        Number loop = codeSegment.newLabel();
+        Number checkRemaining = codeSegment.newLabel();
+        Number consume = codeSegment.newLabel();
+        Number different = codeSegment.newLabel();
+        Number restore = codeSegment.newLabel();
+        Number restoreLoop = codeSegment.newLabel();
+        Number end = codeSegment.newLabel();
+
+        codeSegment.addJNZ(address, checkRemaining);
+        codeSegment.addJNZ(remaining, different);
+        // Both residual values are zero, so the operands are equal.
+        if( trueWhenEqual ) {
+            codeSegment.addINC(flag);
+        }
+        codeSegment.addJNZ(new Number(0), restore);
+
+        codeSegment.placeLabel(checkRemaining);
+        codeSegment.addJNZ(remaining, consume);
+        codeSegment.placeLabel(different);
+        if( !trueWhenEqual ) {
+            codeSegment.addINC(flag);
+        }
+        codeSegment.addJNZ(new Number(0), restore);
+
+        codeSegment.placeLabel(consume);
+        codeSegment.addDEC(address);
+        codeSegment.addDEC(remaining);
+        codeSegment.addINC(consumed);
+        codeSegment.addJNZ(new Number(0), loop);
+
+        // Restore both operands before the caller branches on the result.
+        codeSegment.placeLabel(restore);
+        codeSegment.addJNZ(consumed, restoreLoop);
+        codeSegment.addJNZ(new Number(0), end);
+        codeSegment.placeLabel(restoreLoop);
+        codeSegment.addINC(address);
+        codeSegment.addINC(remaining);
+        codeSegment.addDEC(consumed);
+        codeSegment.addJNZ(consumed, restoreLoop);
+        codeSegment.placeLabel(end);
+        return flag;
+    }
+
 }
 
 PARSER_END(CompilerParser)
@@ -307,21 +369,10 @@ Number DoWhileCondition() : {
 } {
     address = Lhs() (
         <NEQ> number = <NUMBER> {
-            int n = Integer.parseInt(number.image);
-            if( n == 0 ) {
-                return address;
-            } else {
-                return address;
-            }
+            return emitComparison(address, Integer.parseInt(number.image), false);
         }
         | <EQ> number = <NUMBER> {
-            Number target = codeSegment.newLabel();
-            Number flag = dataSegment.newVariable(0);
-            codeSegment.addClear(flag);
-            codeSegment.addJNZ(address, target);
-            codeSegment.addINC(flag);
-            codeSegment.placeLabel(target);
-            return flag;
+            return emitComparison(address, Integer.parseInt(number.image), true);
         }
     )
 }
@@ -349,20 +400,14 @@ Number Lhs() : {
 Number IfCondition() : {
     Number address;
     Token number;
-    Token constant;
 } {
       address = Lhs() (
           <NEQ> number = <NUMBER> {
-            Number target = codeSegment.newLabel();
-            Number flag = dataSegment.newVariable(0);
-            codeSegment.addClear(flag);
-            codeSegment.addJNZ(address, target);
-            codeSegment.addINC(flag);
-            codeSegment.placeLabel(target);
-            return flag;
+            // if/while branch past the body when the source condition is false.
+            return emitComparison(address, Integer.parseInt(number.image), true);
         }
         | <EQ> number = <NUMBER> {
-            return address;
+            return emitComparison(address, Integer.parseInt(number.image), false);
         }
     )
 }
