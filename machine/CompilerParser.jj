@@ -16,12 +16,14 @@ import java.util.HashMap;
 public class CompilerParser {
 
     private boolean preflight = false;
+    private boolean inMacroDefinition = false;
 
     private List<Number> byteCode = new ArrayList<>();
     private CodeSegment codeSegment = new CodeSegment();
     private DataSegment dataSegment = new DataSegment();
 
     private List<String> macroVariables = new ArrayList<>();
+    private final List<Token> deferredGlobalReferences = new ArrayList<>();
 
     public static void main(String[] args) throws ParseException {
         CompilerParser parser = new CompilerParser(System.in);
@@ -34,6 +36,31 @@ public class CompilerParser {
             sb.append(tt.image);
         }
         return sb.toString();
+    }
+
+    private Number resolveVariable(Token id, int offset) throws ParseException {
+        Number variable = dataSegment.getVariable(id.image, offset);
+        if( variable != null ) {
+            return variable;
+        }
+        if( macroVariables.contains(id.image) ) {
+            return new Number(0);
+        }
+        if( preflight && inMacroDefinition ) {
+            // Globals follow the macro definitions; retain the token for diagnostics.
+            deferredGlobalReferences.add(id);
+            return new Number(0);
+        }
+        throw new ParseException("Unknown variable " + id.image + " in line " + id.beginLine);
+    }
+
+    private void validateDeferredGlobalReferences() throws ParseException {
+        for( Token id : deferredGlobalReferences ) {
+            if( dataSegment.getVariable(id.image) == null ) {
+                throw new ParseException("Unknown variable " + id.image + " in line " + id.beginLine);
+            }
+        }
+        deferredGlobalReferences.clear();
     }
 
     // Returns an address whose value is nonzero when the requested comparison holds.
@@ -141,6 +168,11 @@ List<Number> Program( boolean preflight ) : {
     }
     ( MacroDefinition() )*
     ( GlobalVariableDeclaration() <EOS> )*
+    {
+        if( preflight ) {
+            validateDeferredGlobalReferences();
+        }
+    }
     <BEGIN> {
         codeSegment.placeLabel("begin");
     }
@@ -158,9 +190,15 @@ List<Number> Program( boolean preflight ) : {
 
 void MacroDefinition() : {
 }{
-    <VOID> MacroSignature() "{"
+    <VOID> {
+        inMacroDefinition = true;
+    }
+    try {
+        MacroSignature() "{"
             StatementsOrBlocks()
-    "}" {
+        "}"
+    } finally {
+        inMacroDefinition = false;
         macroVariables.clear();
     }
 }
@@ -289,10 +327,10 @@ void Macro() : {
     Token id;
 }{
     name = <IDENTIFIER> "(" (<NUMBER> | id = <IDENTIFIER> {
-            if( dataSegment.getVariable(id.image) == null && !macroVariables.contains(id.image) ) throw new ParseException("Unknown variable " + id.image + " in line " + id.beginLine );
+            resolveVariable(id, 0);
         } ( "[" <NUMBER> "]" )? )?
             ("," (<NUMBER> | id = <IDENTIFIER> {
-            if( dataSegment.getVariable(id.image) == null && !macroVariables.contains(id.image) ) throw new ParseException("Unknown variable " + id.image + " in line " + id.beginLine );
+            resolveVariable(id, 0);
         } ( "[" <NUMBER> "]" )? ) )* ")" {
             if( !preflight ) {
                 throw new ParseException( "Macro substitution failed!\n" + getImage(name));
@@ -382,15 +420,7 @@ Number Lhs() : {
     int offset = 0;
 } {
       lhs = <IDENTIFIER> ( "[" index = <NUMBER> "]" { offset = Integer.parseInt(index.image); } )? {
-        Number left = dataSegment.getVariable(lhs.image, offset);
-        if( left == null ) {
-            if( !macroVariables.contains(lhs.image) ) {
-                throw new ParseException("Unknown variable " + lhs.image + " in line " + lhs.beginLine );
-            } else {
-                left = new Number(0);
-            }
-        }
-        return left;
+        return resolveVariable(lhs, offset);
       }
     | lhs = <NUMBER> {
         return dataSegment.newVariable(Integer.parseInt(lhs.image));
@@ -418,15 +448,7 @@ Number Variable() : {
     int offset = 0;
 } {
     id = <IDENTIFIER> ( "[" index = <NUMBER> "]" { offset = Integer.parseInt(index.image); } )? {
-        Number val = dataSegment.getVariable(id.image, offset);
-        if( val == null ) {
-            if( !macroVariables.contains(id.image) ) {
-                throw new ParseException("Unknown variable " + id.image + " in line " + id.beginLine );
-            } else {
-                val = new Number(0);
-            }
-        }
-        return val;
+        return resolveVariable(id, offset);
     }
 }
 
