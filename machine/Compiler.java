@@ -57,7 +57,12 @@ public class Compiler {
             return false;
         }
         for (int k = 0; k < argumentList.length; ++k) {
-            if (Character.isDigit(parameterList[k].charAt(0)) && !parameterList[k].equals(argumentList[k])) {
+            String parameter = parameterList[k].trim();
+            String argument = argumentList[k].trim();
+            if (parameter.isEmpty() || argument.isEmpty()) {
+                return false;
+            }
+            if (Character.isDigit(parameter.charAt(0)) && !parameter.equals(argument)) {
                 return false;
             }
         }
