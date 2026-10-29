@@ -6,6 +6,7 @@ import java.nio.file.Paths;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class Compiler {
@@ -15,6 +16,8 @@ public class Compiler {
     private static final int INC = 2;
     private static final int DEC = 3;
     private static final int JNZ = 4;
+    private static final Pattern LOCAL_VARIABLE =
+        Pattern.compile("^var\\s+([A-Za-z_][A-Za-z0-9_]*)\\b");
 
     public static void main(String[] args) throws ParseException {
         if (args.length < 1) {
@@ -131,14 +134,15 @@ public class Compiler {
                             locals.put(label, "___#" + labelCounter + "___");
                             ++labelCounter;
                         }
-                        if (macroLine.startsWith("var ") ) {
-                            String label = macroLine.substring(4, macroLine.indexOf('=')).trim();
+                        Matcher declaration = LOCAL_VARIABLE.matcher(macroLine);
+                        if (declaration.find()) {
+                            String label = declaration.group(1);
                             locals.put(label, "___#" + labelCounter + "___");
                             ++labelCounter;
                         }
                         for (var local : locals.entrySet()) {
-                            macroLine = macroLine.replaceAll("\\b" + local.getKey() + "\\b", 
-                                local.getValue());                            
+                            macroLine = macroLine.replaceAll("\\b" + Pattern.quote(local.getKey()) + "\\b",
+                                Matcher.quoteReplacement(local.getValue()));
                         }
 
                         for (int k = 0; k < parameterList.length; ++k) {
