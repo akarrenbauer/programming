@@ -26,6 +26,9 @@ javac --release 17 -d "$machine_build" \
 | [DataSegment.java](../machine/DataSegment.java) | Initial values and addresses for variables and scratch cells. |
 | [Segment.java](../machine/Segment.java), [Number.java](../machine/Number.java) | Symbol tables and mutable integer references used during compilation. |
 | [Machine.java](../machine/Machine.java), [MachineGUI.java](../machine/MachineGUI.java) | Instruction execution and its JavaFX interface. |
+| [SourceWorkspace.java](../machine/SourceWorkspace.java) | Editable main/import buffers, unsaved-change tracking, and explicit source saving. |
+| [SourceEditor.java](../machine/SourceEditor.java), [SourceSyntax.java](../machine/SourceSyntax.java) | JavaFX source highlighting and its tolerant, text-preserving token classifier. |
+| [CompilationResult.java](../machine/CompilationResult.java), [SourceDocument.java](../machine/SourceDocument.java), [SourceLocation.java](../machine/SourceLocation.java), [SourceTrace.java](../machine/SourceTrace.java) | Compiled image, source snapshots, original statement ranges, and macro call chains. |
 | [package.bluej](../package.bluej), [machine/package.bluej](../machine/package.bluej) | BlueJ project metadata. |
 
 `Compiler.compile(...)` first inserts imports and strips comments. A fresh parser
@@ -51,6 +54,8 @@ source files beyond the tracked Java classes are needed.
 | API | Behavior |
 | --- | --- |
 | `Compiler.compile(String)` / `compile(List<String>)` | Compile source; declare `IOException` and `ParseException`. Imports can perform file I/O in either form. |
+| `Compiler.compile(List<String>, SourceLoader)` | Compile supplied main lines and obtain each direct import through a callback, allowing compilation from edited buffers. |
+| `Compiler.compileWithSourceMap(SourceDocument, SourceResolver)` | Compile a named source document and imports into an immutable image with instruction-to-source mappings. |
 | `Machine.load(List<Integer>)` | Load an independent, mutable copy and reset the step counter. |
 | `Machine.load(String)` / `reload()` | Read a memory file / reread its remembered path. File-read errors are printed to standard error. |
 | `get(int)` / `set(int, int)` | Read or write a memory cell. |
@@ -63,6 +68,50 @@ source files beyond the tracked Java classes are needed.
 `reload()` therefore reloads that file, rather than restoring the last list or
 recompiling source. Some malformed inputs raise unchecked lexer or preprocessor
 errors in addition to the compiler's declared exceptions.
+
+`Compiler.SourceLoader.load(Path)` returns an imported file's lines and may throw
+`IOException`. The callback runs once per direct import occurrence, in source
+order, with the same relative or absolute path used by disk-based compilation.
+The `preProcess` and `includeImports` methods also accept this loader. Imported
+lines are not scanned recursively for imports.
+
+The GUI's `SourceWorkspace` opens the main document first and discovers imports
+as compilation requests them. Documents identify files by resolved paths, so
+repeated references and symbolic links share an editor buffer while their contents
+are expanded at every import occurrence. Compilation reads the current buffers; only `save` and
+`saveAll` write files. Open buffers remain available after compilation failures
+or removal of an import. The workspace is independent of JavaFX and can be used
+without a GUI.
+
+`SourceWorkspace.compileWithSourceMap()` returns a `CompilationResult` containing
+`bytecode`, `codeStart`, a `sourceMap` keyed by absolute opcode addresses, and the
+`sources` used for compilation. `compile()` returns just its bytecode. A
+`Compiler.SourceResolver` supplies each imported `SourceDocument`, including its
+file identity; the workspace resolves these to canonical paths. Source snapshots
+normalize CRLF and CR to LF to match the editor. Location offsets are UTF-16,
+start-inclusive and end-exclusive; line and column numbers start at one.
+
+Preprocessing retains original ranges through imports, comment removal, statement
+splitting, and macro substitution. Each `SourceTrace` contains the statement's
+`location` and its macro `callers` from outermost to innermost. Synthetic literal
+argument initialization maps to the call site. The parser records expanded source
+lines at opcode emission, then relocation converts them to absolute memory
+addresses; operands and data cells are never map keys. Generated control-flow
+instructions belong to their controlling statement, including the trailing
+`while` of a `do` loop. This metadata does not change emitted bytecode.
+
+`SourceEditor` extends JavaFX `TextArea` and adds a colored text layer through its
+skin. Native editing, selection, caret movement, scrolling, and undo remain with
+`TextArea`; highlighting does not rewrite the buffer. `SourceSyntax` classifies
+text independently of the parser so incomplete programs can be highlighted while
+typing. Both use the existing Java/JavaFX dependencies.
+
+Execution backgrounds use the native text's range geometry beneath syntax colors
+and selection. They do not modify the document. The GUI uses the exact instruction
+address to select a trace, validates the compiled code region against memory on
+refresh, and discards stale mappings after source or code changes. Following a
+location scrolls through the skin without moving the caret. Source maps describe
+execution; compiler diagnostics can still refer to preprocessed source lines.
 
 ## Inline smoke checks
 
@@ -97,6 +146,28 @@ jshell --class-path "$machine_build" <<'EOF'
 /exit
 EOF
 ```
+
+## Check source mapping
+
+Run these checks from the repository root in the fresh build directory created
+above. They cover opcode addresses, original source ranges, imports, macro call
+chains, unchanged bytecode, and compilation from editable buffers.
+
+```sh
+javac --release 17 -d "$machine_build" \
+  -classpath "$machine_build" -sourcepath . \
+  tests/CompilerInstructionMappingTest.java tests/CompilerSourceMappingTest.java \
+  tests/SourceWorkspaceTest.java
+java -cp "$machine_build" machine.CompilerInstructionMappingTest
+java -cp "$machine_build" CompilerSourceMappingTest
+java -cp "$machine_build" SourceWorkspaceTest
+```
+
+The JavaFX checks in [SourceEditorTest](../tests/SourceEditorTest.java) and
+[MachineGUISourceMappingTest](../tests/MachineGUISourceMappingTest.java) cover marker
+geometry, scrolling, macro navigation, editing behavior, and stale-map removal.
+Their file headers describe how to compile and run them with JavaFX. They require
+working JavaFX native libraries and a desktop or supported headless display.
 
 ## Regenerate the parser
 

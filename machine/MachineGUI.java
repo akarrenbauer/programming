@@ -36,6 +36,11 @@ import javafx.scene.control.ButtonType;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 public class MachineGUI extends Application {
 
@@ -54,7 +59,21 @@ public class MachineGUI extends Application {
 
     private Label stepCounterLabel;
 
-    private String sourceFile;
+    private SourceWorkspace sourceWorkspace;
+    private TabPane sourceTabs;
+    private Label sourcePathLabel;
+    private Label sourceStatusLabel;
+    private Label executionStatusLabel;
+    private FlowPane executionCallers;
+    private CheckBox followExecution;
+    private CompilationResult compiledProgram;
+    private SourceTrace followedTrace;
+    private SourceTrace displayedTrace;
+    private boolean displayedHalted;
+    private Button saveSourceButton;
+    private Button recompileButton;
+    private final Map<SourceWorkspace.Document, Tab> sourceEditors = new LinkedHashMap<>();
+    private final List<Button> controlsDisabledWhileRunning = new ArrayList<>();
     public static void main(String[] args) {
         launch(args);
     }
@@ -135,6 +154,7 @@ public class MachineGUI extends Application {
 
                                     // Add the new entry to the machine's memory model
                                     machine.set(nextAddress, 0); // Initialize with zero or any default value
+                                    updateSourceExecution();
 
                                     // Refresh the table view and start editing the new cell
                                     memoryTable.refresh();
@@ -153,6 +173,7 @@ public class MachineGUI extends Application {
 
                     // Refresh table view to reflect updated value
                     memoryTable.refresh();
+                    updateSourceExecution();
             });
         // Bind the table's width to the sum of its column widths (with some padding)
         memoryTable.prefWidthProperty().bind(addressColumn.widthProperty().add(valueColumn.widthProperty()).add(15));
@@ -163,7 +184,20 @@ public class MachineGUI extends Application {
         cpuLabel.setStyle("-fx-background-color: white; -fx-border-color: black; -fx-padding: 10px;");
 
         primaryStage.setScene(createScene(primaryStage));
+        primaryStage.setOnCloseRequest(event -> {
+            if (!confirmSaveSources()) {
+                event.consume();
+            }
+        });
         primaryStage.show();
+    }
+
+    @Override
+    public void stop() {
+        if (runTimer != null) {
+            runTimer.stop();
+            runTimer = null;
+        }
     }
 
     private Scene createScene(Stage primaryStage) {
@@ -172,7 +206,9 @@ public class MachineGUI extends Application {
         Button loadButton = new Button("Load");
         Button reloadButton = new Button("Reload");
         Button compileButton = new Button("Compile");
-        Button recompileButton = new Button("Recompile");
+        recompileButton = new Button("Recompile");
+        recompileButton.setId("recompile");
+        recompileButton.setDisable(true);
         Button resetButton = new Button("Reset");
         Button runButton = new Button("Run");
         Button stopButton = new Button("Stop");
@@ -185,33 +221,21 @@ public class MachineGUI extends Application {
 
         reloadButton.setOnAction(e -> {
                     machine.reload();
+                    invalidateSourceMapping("Memory reloaded. Recompile to restore source tracking.");
                     updateMemoryDisplay();
+                    sourceStatusLabel.setText("Memory reloaded. Recompile to run the source tabs.");
             });
 
         compileButton.setOnAction(e -> compileMemoryFromFile(primaryStage));
 
-        recompileButton.setOnAction(e -> {
-                    try {
-                        machine.load( Compiler.compile( sourceFile ) );
-                    } catch(IOException exception ) {
-                        System.err.println( exception.getMessage() );
-                        Alert alert = new Alert(Alert.AlertType.ERROR, exception.getMessage(), ButtonType.OK);
-                        alert.setTitle("File Error");
-                        alert.setHeaderText("File Error");
-                        alert.showAndWait();
-                    } catch(ParseException exception ) {
-                        System.err.println( exception.getMessage() );
-                        Alert alert = new Alert(Alert.AlertType.ERROR, exception.getMessage(), ButtonType.OK);
-                        alert.setTitle("Parse Error");
-                        alert.setHeaderText("Parse Error");
-                        alert.showAndWait();
-                    }
-                    updateMemoryDisplay();
-            });
+        recompileButton.setOnAction(e -> compileSourceTabs());
+        recompileButton.setTooltip(new Tooltip("Compile the current contents of the source tabs"));
 
         resetButton.setOnAction(e -> {
                     machine.reset();
+                    invalidateSourceMapping("Memory reset. Recompile to restore source tracking.");
                     updateMemoryDisplay();
+                    sourceStatusLabel.setText("Memory reset. Recompile to run the source tabs.");
             });
 
         stopButton.setDisable(true); // only enabled while running
@@ -260,7 +284,8 @@ public class MachineGUI extends Application {
                     runButton.setDisable(true);
                     stopButton.setDisable(false);
                     stepButton.setDisable(true);
-                    // if you have stepN: stepNButton.setDisable(true);
+                    stepNButton.setDisable(true);
+                    controlsDisabledWhileRunning.forEach(button -> button.setDisable(true));
 
                     runTimer = new AnimationTimer() {
                         private long lastUpdateNs = 0;
@@ -308,19 +333,30 @@ public class MachineGUI extends Application {
         HBox.setMargin(processor, new Insets(0, 0, 0, 50)); // Add some spacing between the table and the box.
 
         customPane.getChildren().add(hbox);
+        customPane.setMinWidth(400);
+        hbox.prefWidthProperty().bind(customPane.widthProperty());
+        tableWithTopBtn.prefHeightProperty().bind(customPane.heightProperty().subtract(10));
 
-        HBox buttonBox = new HBox(5, saveButton, loadButton, reloadButton, compileButton, recompileButton, resetButton, runButton, stopButton, stepButton, stepNButton);
-        VBox vbox = new VBox(2, buttonBox, customPane);
-        VBox.setVgrow(customPane, Priority.ALWAYS);
-        tableWithTopBtn.prefHeightProperty().bind(vbox.heightProperty().subtract(buttonBox.heightProperty()).subtract(20));
+        SplitPane workspace = new SplitPane(customPane, createSourceEditor());
+        workspace.setDividerPositions(0.45);
+        FlowPane buttonBox = new FlowPane(5, 5, saveButton, loadButton, reloadButton, compileButton, recompileButton, resetButton, runButton, stopButton, stepButton, stepNButton);
+        buttonBox.setPadding(new Insets(6));
+        VBox vbox = new VBox(2, buttonBox, workspace);
+        VBox.setVgrow(workspace, Priority.ALWAYS);
+        controlsDisabledWhileRunning.addAll(List.of(saveButton, loadButton, reloadButton,
+                compileButton, recompileButton, resetButton));
 
-        Scene scene = new Scene(vbox, 800, 450);
-        scene.getAccelerators().put(
-            new KeyCodeCombination(KeyCode.HOME),
-            () -> {
-                    memoryTable.scrollTo(0);
+        Scene scene = new Scene(vbox, 1100, 650);
+        scene.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
+            if (event.getCode() == KeyCode.HOME && !event.isControlDown()
+                    && !event.isAltDown() && !event.isMetaDown() && !event.isShiftDown()
+                    && !(scene.getFocusOwner() instanceof TextInputControl)) {
+                memoryTable.scrollTo(0);
+                event.consume();
             }
-        );
+        });
+        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.S, KeyCombination.SHORTCUT_DOWN),
+                this::saveSelectedSource);
 
         return scene;
     }
@@ -335,6 +371,7 @@ public class MachineGUI extends Application {
         stopButton.setDisable(true);
         stepButton.setDisable(false);
         stepNButton.setDisable(false);
+        restoreSourceControls();
         updateMemoryDisplay();
     }
 
@@ -348,7 +385,13 @@ public class MachineGUI extends Application {
         stopButton.setDisable(true);
         stepButton.setDisable(false);
         stepNButton.setDisable(false);
+        restoreSourceControls();
         updateMemoryDisplay();
+    }
+
+    private void restoreSourceControls() {
+        controlsDisabledWhileRunning.forEach(button -> button.setDisable(false));
+        recompileButton.setDisable(sourceWorkspace == null);
     }
 
     // Save memory data to a file
@@ -378,7 +421,9 @@ public class MachineGUI extends Application {
 
         if (selectedFile != null) {
             machine.load(selectedFile.getAbsolutePath());
+            invalidateSourceMapping("Memory loaded. Recompile to restore source tracking.");
             updateMemoryDisplay();
+            sourceStatusLabel.setText("Memory loaded. Recompile to run the source tabs.");
             //refreshScene(primaryStage);
         }
     }
@@ -390,30 +435,210 @@ public class MachineGUI extends Application {
         File selectedFile = fileChooser.showOpenDialog(primaryStage);
 
         if (selectedFile != null) {
-            sourceFile = selectedFile.getAbsolutePath();
-            try {
-                machine.load( Compiler.compile( sourceFile ) );
-            } catch(IOException exception ) {
-                System.err.println( exception.getMessage() );
-                Alert alert = new Alert(Alert.AlertType.ERROR, exception.getMessage(), ButtonType.OK);
-                alert.setTitle("File Error");
-                alert.setHeaderText("File Error");
-                alert.showAndWait();
-            } catch(ParseException exception ) {
-                System.err.println( exception.getMessage() );
-                exception.printStackTrace();
-                Alert alert = new Alert(Alert.AlertType.ERROR, exception.getMessage(), ButtonType.OK);
-                alert.setTitle("Parse Error");
-                alert.setHeaderText("Parse Error");
-                alert.showAndWait();
-            }
-            updateMemoryDisplay();
-            //refreshScene(primaryStage);
+            openSourceFile(selectedFile.toPath());
         }
     }
 
-    private void refreshScene(Stage primaryStage) {
-        primaryStage.setScene(createScene(primaryStage));
+    private VBox createSourceEditor() {
+        sourceTabs = new TabPane();
+        sourceTabs.setId("source-tabs");
+        sourceTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        sourceTabs.getSelectionModel().selectedItemProperty().addListener(
+                (observable, previous, selected) -> updateSourceSelection());
+        Label emptyMessage = new Label("Choose Compile to open a program and its imports.");
+        emptyMessage.setPadding(new Insets(16));
+        sourceTabs.getTabs().add(new Tab("Source", emptyMessage));
+
+        saveSourceButton = new Button("Save source");
+        saveSourceButton.setId("save-source");
+        saveSourceButton.setDisable(true);
+        saveSourceButton.setTooltip(new Tooltip("Save the selected source tab (Ctrl+S / Command+S)"));
+        saveSourceButton.setOnAction(event -> saveSelectedSource());
+        followExecution = new CheckBox("Follow execution");
+        followExecution.setId("follow-execution");
+        followExecution.setSelected(true);
+        followExecution.setTooltip(new Tooltip("Show the next instruction's source without moving the caret"));
+        followExecution.selectedProperty().addListener((observable, previous, selected) -> {
+            followedTrace = null;
+            updateSourceExecution();
+        });
+        HBox toolbar = new HBox(8, new Label("Source files"), saveSourceButton, followExecution);
+        toolbar.setAlignment(Pos.CENTER_LEFT);
+        toolbar.setPadding(new Insets(6));
+
+        sourcePathLabel = new Label();
+        sourcePathLabel.setMaxWidth(Double.MAX_VALUE);
+        sourcePathLabel.setPadding(new Insets(4, 8, 0, 8));
+        sourceStatusLabel = new Label("No source program open.");
+        sourceStatusLabel.setId("source-status");
+        sourceStatusLabel.setWrapText(true);
+        sourceStatusLabel.setPadding(new Insets(4, 8, 8, 8));
+
+        executionStatusLabel = new Label("Compile a source program to track execution.");
+        executionStatusLabel.setId("execution-status");
+        executionStatusLabel.setWrapText(true);
+        executionStatusLabel.setPadding(new Insets(4, 8, 0, 8));
+        executionCallers = new FlowPane(4, 2);
+        executionCallers.setId("execution-callers");
+        executionCallers.setPadding(new Insets(0, 8, 0, 8));
+
+        VBox editor = new VBox(toolbar, executionStatusLabel, executionCallers,
+                sourceTabs, sourcePathLabel, sourceStatusLabel);
+        editor.setMinWidth(300);
+        VBox.setVgrow(sourceTabs, Priority.ALWAYS);
+        return editor;
+    }
+
+    void openSourceFile(Path path) {
+        if (runTimer != null || !confirmSaveSources()) {
+            return;
+        }
+        try {
+            SourceWorkspace opened = SourceWorkspace.open(path);
+            invalidateSourceMapping("Source program opened. Compile to track execution.");
+            sourceWorkspace = opened;
+            sourceTabs.getTabs().clear();
+            sourceEditors.clear();
+            refreshSourceTabs();
+            recompileButton.setDisable(false);
+            compileSourceTabs();
+        } catch (IOException | RuntimeException exception) {
+            showSourceError("Source file error", exception);
+        }
+    }
+
+    private void compileSourceTabs() {
+        if (sourceWorkspace == null || runTimer != null) {
+            return;
+        }
+        try {
+            CompilationResult result = sourceWorkspace.compileWithSourceMap();
+            machine.load(result.bytecode());
+            compiledProgram = result;
+            followedTrace = null;
+            refreshSourceTabs();
+            updateMemoryDisplay();
+            sourceStatusLabel.setText("Compiled " + sourceWorkspace.getMainDocument().getPath().getFileName()
+                    + " from the source tabs.");
+        } catch (IOException | ParseException | RuntimeException | TokenMgrError exception) {
+            sourceStatusLabel.setText("Compilation failed. Machine memory is unchanged.");
+            // Display any readable imports even when later input fails to compile.
+            refreshSourceTabs();
+            showSourceError("Compilation error", exception);
+        } finally {
+            refreshSourceTabs();
+        }
+    }
+
+    private void refreshSourceTabs() {
+        if (sourceWorkspace == null) {
+            return;
+        }
+        for (SourceWorkspace.Document document : sourceWorkspace.getDocuments()) {
+            Tab tab = sourceEditors.get(document);
+            if (tab == null) {
+                // TextArea removes carriage returns; preserve their line boundaries.
+                String editorText = document.getText().replace("\r\n", "\n").replace('\r', '\n');
+                SourceEditor editor = new SourceEditor(editorText);
+                editor.setAccessibleText("Source editor for " + document.getPath());
+                tab = new Tab();
+                tab.setContent(editor);
+                tab.setUserData(document);
+                tab.setTooltip(new Tooltip(document.getPath().toString()));
+                sourceEditors.put(document, tab);
+                editor.textProperty().addListener((observable, previous, text) -> {
+                    document.setText(text);
+                    invalidateSourceMapping("Source changed. Recompile to restore source tracking.");
+                    updateSourceTabTitle(document);
+                    updateSourceSelection();
+                    sourceStatusLabel.setText("Source changed. Recompile to update machine memory.");
+                });
+                sourceTabs.getTabs().add(tab);
+            }
+            updateSourceTabTitle(document);
+        }
+        updateSourceSelection();
+    }
+
+    private void updateSourceTabTitle(SourceWorkspace.Document document) {
+        String title = document.getPath().getFileName().toString();
+        if (document == sourceWorkspace.getMainDocument()) {
+            title += " (main)";
+        }
+        if (document.isModified()) {
+            title += " *";
+        }
+        sourceEditors.get(document).setText(title);
+    }
+
+    private SourceWorkspace.Document selectedSourceDocument() {
+        Tab selected = sourceTabs.getSelectionModel().getSelectedItem();
+        return selected != null && selected.getUserData() instanceof SourceWorkspace.Document
+                ? (SourceWorkspace.Document) selected.getUserData() : null;
+    }
+
+    private void updateSourceSelection() {
+        // The initial empty tab is selected while these controls are being created.
+        if (saveSourceButton == null || sourcePathLabel == null) {
+            return;
+        }
+        SourceWorkspace.Document selected = selectedSourceDocument();
+        saveSourceButton.setDisable(selected == null || !selected.isModified());
+        sourcePathLabel.setText(selected == null ? "" : selected.getPath().toString());
+        sourcePathLabel.setTooltip(selected == null ? null : new Tooltip(selected.getPath().toString()));
+    }
+
+    private void saveSelectedSource() {
+        SourceWorkspace.Document document = selectedSourceDocument();
+        if (document == null) {
+            return;
+        }
+        try {
+            sourceWorkspace.save(document);
+            updateSourceTabTitle(document);
+            updateSourceSelection();
+        } catch (IOException | RuntimeException exception) {
+            showSourceError("Save source error", exception);
+        }
+    }
+
+    private boolean confirmSaveSources() {
+        if (sourceWorkspace == null || !sourceWorkspace.isModified()) {
+            return true;
+        }
+        ButtonType saveAll = new ButtonType("Save all", ButtonBar.ButtonData.YES);
+        ButtonType discard = new ButtonType("Discard", ButtonBar.ButtonData.NO);
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
+                "Save changes to the source files before continuing?", saveAll, discard, ButtonType.CANCEL);
+        alert.initOwner(currentStage);
+        alert.setTitle("Unsaved source changes");
+        alert.setHeaderText("Some source tabs have unsaved changes.");
+        ButtonType answer = alert.showAndWait().orElse(ButtonType.CANCEL);
+        if (answer == discard) {
+            return true;
+        }
+        if (answer != saveAll) {
+            return false;
+        }
+        try {
+            sourceWorkspace.saveAll();
+            refreshSourceTabs();
+            return true;
+        } catch (IOException | RuntimeException exception) {
+            refreshSourceTabs();
+            showSourceError("Save source error", exception);
+            return false;
+        }
+    }
+
+    private void showSourceError(String title, Throwable exception) {
+        String message = exception.getMessage() == null ? exception.toString() : exception.getMessage();
+        Alert alert = new Alert(Alert.AlertType.ERROR, message, ButtonType.OK);
+        alert.initOwner(currentStage);
+        alert.setTitle(title);
+        alert.setHeaderText(title);
+        alert.setResizable(true);
+        alert.showAndWait();
     }
 
     private void updateMemoryDisplay() {
@@ -423,6 +648,110 @@ public class MachineGUI extends Application {
         }
         scrollToInstructionPointer();
         stepCounterLabel.setText("Steps executed: " + machine.getStepCounter());
+        updateSourceExecution();
+    }
+
+    private void invalidateSourceMapping(String reason) {
+        compiledProgram = null;
+        followedTrace = null;
+        clearSourceMarkers();
+        executionStatusLabel.setText(reason);
+        executionStatusLabel.setTooltip(null);
+    }
+
+    private void clearSourceMarkers() {
+        displayedTrace = null;
+        for (Tab tab : sourceEditors.values()) {
+            ((SourceEditor) tab.getContent()).clearExecutionHighlights();
+        }
+        executionCallers.getChildren().clear();
+    }
+
+    private Tab sourceTab(SourceLocation location) {
+        for (Map.Entry<SourceWorkspace.Document, Tab> entry : sourceEditors.entrySet()) {
+            if (entry.getKey().getPath().equals(location.file())) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    private void revealSourceLocation(SourceLocation location) {
+        Tab tab = sourceTab(location);
+        if (tab != null) {
+            sourceTabs.getSelectionModel().select(tab);
+            ((SourceEditor) tab.getContent()).revealSourceOffset(location.startOffset());
+        }
+    }
+
+    private String formatSourceLocation(SourceLocation location) {
+        return location.file().getFileName() + ":" + location.line() + ":" + location.column();
+    }
+
+    private void updateSourceExecution() {
+        if (compiledProgram == null) {
+            return;
+        }
+        // Code and data share memory. A manual edit or a running program can
+        // overwrite instructions, in which case their source no longer applies.
+        for (int address = compiledProgram.codeStart(); address < compiledProgram.bytecode().size(); address++) {
+            if (machine.get(address) != compiledProgram.bytecode().get(address)) {
+                invalidateSourceMapping("Compiled instructions changed. Recompile to restore source tracking.");
+                return;
+            }
+        }
+        int instructionPointer = machine.getInstructionPointer();
+        SourceTrace trace = compiledProgram.sourceMap().get(instructionPointer);
+        if (trace == null) {
+            clearSourceMarkers();
+            followedTrace = null;
+            executionStatusLabel.setText((machine.isHalted() ? "Halted" : "No source location")
+                    + " at i = " + instructionPointer + " (outside mapped instructions).");
+            executionStatusLabel.setTooltip(null);
+            return;
+        }
+        SourceLocation location = trace.location();
+        boolean halted = machine.isHalted();
+        if (!trace.equals(displayedTrace) || halted != displayedHalted) {
+            showSourceTrace(trace, halted);
+        }
+        executionStatusLabel.setText((halted ? "Halted: " : "Next: ")
+                + formatSourceLocation(location) + " · i = " + instructionPointer);
+        executionStatusLabel.setTooltip(new Tooltip(location.file().toString()));
+        if (followExecution.isSelected() && !trace.equals(followedTrace)) {
+            revealSourceLocation(location);
+        }
+        followedTrace = trace;
+    }
+
+    private void showSourceTrace(SourceTrace trace, boolean halted) {
+        clearSourceMarkers();
+        SourceLocation location = trace.location();
+        Tab current = sourceTab(location);
+        if (current != null) {
+            ((SourceEditor) current.getContent()).setExecutionRange(
+                    location.startOffset(), location.endOffset(), halted);
+        }
+        Map<SourceEditor, List<IndexRange>> callerRanges = new LinkedHashMap<>();
+        for (SourceLocation caller : trace.callers()) {
+            Tab tab = sourceTab(caller);
+            if (tab != null) {
+                callerRanges.computeIfAbsent((SourceEditor) tab.getContent(), key -> new ArrayList<>())
+                        .add(new IndexRange(caller.startOffset(), caller.endOffset()));
+            }
+            if (executionCallers.getChildren().isEmpty()) {
+                executionCallers.getChildren().add(new Label("Called from:"));
+            } else {
+                executionCallers.getChildren().add(new Label("→"));
+            }
+            Hyperlink link = new Hyperlink(formatSourceLocation(caller));
+            link.setTooltip(new Tooltip(caller.file().toString()));
+            link.setOnAction(event -> revealSourceLocation(caller));
+            executionCallers.getChildren().add(link);
+        }
+        callerRanges.forEach(SourceEditor::setCallerRanges);
+        displayedTrace = trace;
+        displayedHalted = halted;
     }
 
     protected void scrollToInstructionPointer() {

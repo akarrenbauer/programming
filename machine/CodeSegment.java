@@ -1,6 +1,9 @@
 package machine;
 
 import java.util.LinkedHashSet;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -12,19 +15,50 @@ import java.util.Set;
 public class CodeSegment extends Segment
 {
     private final Set<String> unresolvedLabels = new LinkedHashSet<>();
+    private final Map<Integer, Integer> instructionSourceLines = new LinkedHashMap<>();
+    private int sourceLine;
+
+    int getSourceLine() {
+        return sourceLine;
+    }
+
+    void setSourceLine(int sourceLine) {
+        this.sourceLine = sourceLine;
+    }
+
+    Map<Integer, Integer> getInstructionSourceLines(int offset) {
+        Map<Integer, Integer> absoluteLines = new LinkedHashMap<>();
+        instructionSourceLines.forEach((address, line) -> absoluteLines.put(address + offset, line));
+        return Collections.unmodifiableMap(absoluteLines);
+    }
+
+    private void addInstruction(Number opcode) {
+        if (sourceLine > 0) {
+            instructionSourceLines.put(size(), sourceLine);
+        }
+        add(opcode);
+    }
+
+    public void addHALT() {
+        addInstruction(Number.HALT);
+    }
+
+    public void addNOP() {
+        addInstruction(Number.NOP);
+    }
 
     public void addINC( Number arg ) {
-        add(Number.INC);
+        addInstruction(Number.INC);
         add(arg);
     }
 
     public void addDEC( Number arg ) {
-        add(Number.DEC);
+        addInstruction(Number.DEC);
         add(arg);
     }
 
     public void addJNZ( Number test, Number target ) {
-        add(Number.JNZ);
+        addInstruction(Number.JNZ);
         add(test);
         add(target);
     }

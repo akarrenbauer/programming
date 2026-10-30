@@ -2,8 +2,8 @@
 
 A teaching project for exploring how structured programs become instructions on a
 small random-access machine. It includes a compiler for variables, arrays,
-conditions, loops, and macros; a Java execution model; and a JavaFX memory viewer
-and debugger.
+conditions, loops, and macros; a Java execution model; and a JavaFX source editor,
+memory viewer, and debugger.
 
 **BlueJ is the recommended way to run the GUI.** The documentation also explains
 the source language, the machine model, and a command-line development workflow.
@@ -70,8 +70,10 @@ A source statement can compile to several machine instructions.
 
 | Control | Behavior |
 | --- | --- |
-| **Compile** | Choose a source program, compile it, replace memory, and reset the step counter. |
-| **Recompile** | Compile the last chosen source again. Use **Compile** first. |
+| **Compile** | Open a source program and its imports in editor tabs, compile it, replace memory, and reset the step counter. |
+| **Recompile** | Compile the current contents of the source tabs, including unsaved edits. Use **Compile** first. |
+| **Save source** | Save the selected source tab to its file. Ctrl+S / Command+S does the same. |
+| **Follow execution** | Automatically show the source statement for the next instruction as execution advances. |
 | **Load** | Load a raw integer memory image, replacing memory and resetting the counter. |
 | **Reload** | Reread the last memory file chosen with **Load**, independently of the source chosen with **Compile**. |
 | **Save** | Save the current memory snapshot, including the instruction pointer. It does not save source or change the **Reload** target. |
@@ -80,6 +82,57 @@ A source statement can compile to several machine instructions.
 | **Step** | Execute one instruction; do nothing at `HALT`. |
 | **Step n** | Execute at most a nonnegative number of instructions, stopping earlier at `HALT`. |
 | **T** / **Home** | Scroll to address `0`. |
+
+### Edit source files
+
+The first source tab is marked **(main)**; imported files open in additional
+tabs. The selected file's full path appears below the editor and in its tab's
+tooltip. A `*` marks unsaved changes. **Save source** saves that tab;
+**Save** in the main toolbar saves machine memory.
+
+Source tabs highlight keywords, machine instructions, numbers, quoted paths,
+comments, labels, and macro names as you type. Highlighting also works while
+statements are incomplete; compilation still checks whether the program is valid.
+
+**Recompile** uses the current editor contents without saving them. New imports
+open when compilation reaches them, using the compiler's existing paths relative
+to the working directory. Already opened tabs keep their current contents;
+use **Compile** to reopen a program when you want to load external file changes.
+Removing an import leaves its tab open so edits can still be saved, but that file
+is included in compilation only while the main program imports it.
+
+Compilation errors leave the source tabs available for correction and preserve
+the previous machine memory. Before switching programs or closing the window,
+unsaved changes offer **Save all**, **Discard**, or **Cancel**. **Home** works
+normally inside the editor. Stop execution before recompiling or replacing
+memory; those controls are disabled while the machine runs.
+
+### Follow execution in the source
+
+After compilation, a green background marks the statement for the instruction at
+`i`, which is the **next** instruction to execute. **Step**, **Step n**, **Run**, and
+**Stop** update this marker together with memory. At an explicit `HALT`, the
+statement turns amber and the status reads **Halted**. Several machine instructions
+may belong to one statement, so a step does not always move the marker.
+
+With **Follow execution** enabled, the editor selects the relevant file tab and
+scrolls to the statement. This preserves the caret, text selection, and undo
+history. Turn it off to browse other files while execution continues; the markers
+and location status still update.
+
+For an expanded macro, the marker appears on the statement in the macro body,
+including bodies in imported files. Its call sites have a pale blue background;
+**Called from** links let you visit the calls from outermost to innermost. Literal
+argument preparation points to the call that caused it.
+
+Editing source clears execution tracking until the next successful **Recompile**.
+Saving alone does not restore it. Changing compiled instruction or operand cells,
+including changes made by the running program, also clears tracking. Data edits
+and changes to `i` keep tracking while the compiled code remains intact. **Load**,
+**Reload**, and **Reset** clear it. An address without a mapped instruction, such
+as an operand cell or an implicit halt beyond the program, has no source marker.
+
+### Inspect and edit memory
 
 Address `0` contains the instruction pointer and is highlighted orange. The next
 instruction is green, and its argument cells are pale green. The CPU area shows

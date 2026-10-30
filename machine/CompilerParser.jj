@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Collections;
 
 
 public class CompilerParser {
@@ -21,9 +22,21 @@ public class CompilerParser {
     private List<Number> byteCode = new ArrayList<>();
     private CodeSegment codeSegment = new CodeSegment();
     private DataSegment dataSegment = new DataSegment();
+    private Map<Integer, Integer> instructionSourceLines = Collections.emptyMap();
+    private int codeStart = -1;
 
     private List<String> macroVariables = new ArrayList<>();
     private final List<Token> deferredGlobalReferences = new ArrayList<>();
+
+    /** Absolute opcode addresses mapped to one-based lines of the parsed source. */
+    public Map<Integer, Integer> getInstructionSourceLines() {
+        return instructionSourceLines;
+    }
+
+    /** First code address, or -1 until a program has parsed successfully. */
+    public int getCodeStart() {
+        return codeStart;
+    }
 
     public static void main(String[] args) throws ParseException {
         CompilerParser parser = new CompilerParser(System.in);
@@ -184,6 +197,8 @@ List<Number> Program( boolean preflight ) : {
         byteCode.addAll(dataSegment);
         codeSegment.applyOffset( byteCode.size() );
         byteCode.addAll(codeSegment);
+        codeStart = dataSegment.size();
+        instructionSourceLines = codeSegment.getInstructionSourceLines(codeStart);
         return byteCode;
     }
 }
@@ -248,12 +263,21 @@ void LabelDeclaration() : {
 }
 
 void UnlabeledStatementOrBlock() : {
+    int previousLine;
 } {
-      Block()
-    | DoWhileBlock()
-    | WhileBlock()
-    | IfElseBlock()
-    | Statement()
+    {
+        previousLine = codeSegment.getSourceLine();
+        codeSegment.setSourceLine(getToken(1).beginLine);
+    }
+    try {
+        ( Block()
+        | DoWhileBlock()
+        | WhileBlock()
+        | IfElseBlock()
+        | Statement() )
+    } finally {
+        codeSegment.setSourceLine(previousLine);
+    }
 }
 
 void Block() : {
@@ -264,10 +288,13 @@ void Block() : {
 void DoWhileBlock() : {
     Number condition;
     Number target = codeSegment.newLabel();
+    Token whileToken;
 } {
     <DO> "{"
         StatementsOrBlocks()
-    "}" <WHILE> "(" condition = DoWhileCondition() ")" <EOS> {
+    "}" whileToken = <WHILE> {
+        codeSegment.setSourceLine(whileToken.beginLine);
+    } "(" condition = DoWhileCondition() ")" <EOS> {
         codeSegment.addJNZ(condition, target);
     }
 }
@@ -463,12 +490,12 @@ Number Variable() : {
 
 void Halt() : {
 } {
-    <HALT> { codeSegment.add(Number.HALT); }
+    <HALT> { codeSegment.addHALT(); }
 }
 
 void Nop() : {
 } {
-    <NOP> { codeSegment.add(Number.NOP); }
+    <NOP> { codeSegment.addNOP(); }
 }
 
 void Inc() : {
