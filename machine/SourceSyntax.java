@@ -19,6 +19,41 @@ public final class SourceSyntax {
 
     private SourceSyntax() {}
 
+    /** Finds an exact top-level entry marker outside comments and quoted paths. */
+    public static boolean hasBeginMarker(String source) {
+        if (source == null) {
+            return false;
+        }
+        int position = 0;
+        int depth = 0;
+        while (position < source.length()) {
+            char current = source.charAt(position);
+            if (startsComment(source, position)) {
+                position = commentEnd(source, position);
+            } else if (current == '"') {
+                position = stringEnd(source, position);
+            } else if (isWordPart(current)) {
+                int start = position++;
+                while (position < source.length() && isWordPart(source.charAt(position))) {
+                    ++position;
+                }
+                if (depth == 0 && position - start == 5
+                        && source.regionMatches(start, "begin", 0, 5)
+                        && position < source.length() && source.charAt(position) == ':') {
+                    return true;
+                }
+            } else {
+                if (current == '{') {
+                    ++depth;
+                } else if (current == '}' && depth > 0) {
+                    --depth;
+                }
+                ++position;
+            }
+        }
+        return false;
+    }
+
     /**
      * Returns ordered spans covering the entire source, including whitespace.
      * Null is treated as empty source. Incomplete constructs are accepted.
@@ -38,18 +73,10 @@ public final class SourceSyntax {
             Kind kind;
 
             if (startsComment(source, position)) {
-                position += 2;
-                while (position < source.length() && !isLineEnd(source.charAt(position))) {
-                    ++position;
-                }
+                position = commentEnd(source, position);
                 kind = Kind.COMMENT;
             } else if (current == '"') {
-                ++position;
-                while (position < source.length() && !isLineEnd(source.charAt(position))) {
-                    if (source.charAt(position++) == '"') {
-                        break;
-                    }
-                }
+                position = stringEnd(source, position);
                 kind = Kind.STRING;
             } else if (isWordPart(current)) {
                 boolean digitsOnly = isDigit(current);
@@ -100,6 +127,24 @@ public final class SourceSyntax {
             append(spans, start, position, kind);
         }
         return List.copyOf(spans);
+    }
+
+    private static int commentEnd(String source, int position) {
+        position += 2;
+        while (position < source.length() && !isLineEnd(source.charAt(position))) {
+            ++position;
+        }
+        return position;
+    }
+
+    private static int stringEnd(String source, int position) {
+        ++position;
+        while (position < source.length() && !isLineEnd(source.charAt(position))) {
+            if (source.charAt(position++) == '"') {
+                break;
+            }
+        }
+        return position;
     }
 
     private static boolean startsComment(String source, int position) {

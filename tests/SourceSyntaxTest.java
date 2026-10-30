@@ -22,6 +22,49 @@ public class SourceSyntaxTest {
     }
 
     public static void main(String[] args) {
+        check("entry markers are exact case-sensitive whole words", () -> {
+            for (String source : List.of("begin:", "var value=0; begin: HALT;", "\tbegin:\r\n", "begin:begin:")) {
+                expect(true, SourceSyntax.hasBeginMarker(source), "valid marker in " + source);
+            }
+            for (String source : List.of("", "begin", "begin :", "begin\n:", "Begin:", "BEGIN:",
+                    "_begin:", "mybegin:", "begin2:", "1begin:", "begin_name:")) {
+                expect(false, SourceSyntax.hasBeginMarker(source), "not an entry marker: " + source);
+            }
+            expect(false, SourceSyntax.hasBeginMarker(null), "null has no marker");
+        });
+
+        check("entry markers ignore comments and quoted paths", () -> {
+            for (String source : List.of("// begin:", "import \"begin:\";", "\"folder//begin:\"",
+                    "// \" { begin: }\n\"begin:\"", "\"unfinished begin:")) {
+                expect(false, SourceSyntax.hasBeginMarker(source), "protected marker in " + source);
+            }
+            for (String source : List.of("// begin:\rbegin:", "// begin:\nbegin:", "// begin:\r\nbegin:",
+                    "\"unfinished\nbegin:", "import \"folder//file\";\nbegin:")) {
+                expect(true, SourceSyntax.hasBeginMarker(source), "marker following protected text");
+            }
+        });
+
+        check("entry markers must be outside nested braces", () -> {
+            for (String source : List.of("{begin:}", "void library() { begin: }", "{{begin:}}",
+                    "void library() {\nif(0==0) {\nbegin:\n}\n}\n", "{\"}\" begin:", "{// }\nbegin:")) {
+                expect(false, SourceSyntax.hasBeginMarker(source), "nested marker in " + source);
+            }
+            for (String source : List.of("void library() { { NOP; } }\nbegin:",
+                    "void library() {\n// } begin:\n}\nbegin:", "\"{\" begin:", "// {\nbegin:")) {
+                expect(true, SourceSyntax.hasBeginMarker(source), "top-level marker after braces");
+            }
+        });
+
+        check("entry marker scanning tolerates incomplete editing states", () -> {
+            for (String source : List.of("/", "//", "\"", "{", "}", "void (") ) {
+                expect(false, SourceSyntax.hasBeginMarker(source), "incomplete source has no marker");
+            }
+            expect(true, SourceSyntax.hasBeginMarker("} begin:"), "an unmatched closing brace does not hide a marker");
+            expect(true, SourceSyntax.hasBeginMarker("begin: {"), "incomplete program still has an entry marker");
+            String source = "// Grüße 😀\r\nvar broken=;\nbegin:";
+            expect(true, SourceSyntax.hasBeginMarker(source), "marker recognition does not validate the whole program");
+        });
+
         check("empty source has no spans", () -> {
             expect(List.of(), SourceSyntax.highlight(""), "empty source");
             expect(List.of(), SourceSyntax.highlight(null), "absent source");

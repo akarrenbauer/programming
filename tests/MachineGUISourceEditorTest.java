@@ -60,12 +60,14 @@ public final class MachineGUISourceEditorTest {
     private static Stage stage;
     private static Machine machine;
     private static TabPane tabs;
-    private static Button recompile;
+    private static Button compile;
     private static Button save;
     private static Tab mainTab;
     private static Tab libraryTab;
+    private static Tab carriageReturnTab;
     private static TextArea mainEditor;
     private static TextArea libraryEditor;
+    private static TextArea carriageReturnEditor;
 
     @FunctionalInterface
     private interface Check {
@@ -79,6 +81,7 @@ public final class MachineGUISourceEditorTest {
         Path libraryPath = directory.resolve("library.ad04");
         Path carriageReturnPath = directory.resolve("carriage-return.ad04");
         String carriageReturnSource = "// heading\rvar result = 1;\rbegin:\rINC result;\rHALT;\r";
+        String carriageReturnDraft = carriageReturnSource.replace('\r', '\n') + "// retained draft\n";
         String libraryOriginal = "void bump(value) {\n    INC value;\n}\n";
         String libraryChanged = "void bump(value) {\n    INC value;\n    INC value;\n}\n";
         String mainOriginal = "import \"" + libraryPath + "\";\n"
@@ -111,7 +114,7 @@ public final class MachineGUISourceEditorTest {
                 stage.getScene().getRoot().applyCss();
                 stage.getScene().getRoot().layout();
                 tabs = node("source-tabs", TabPane.class);
-                recompile = node("recompile", Button.class);
+                compile = node("compile", Button.class);
                 save = node("save-source", Button.class);
                 Field machineField = MachineGUI.class.getDeclaredField("machine");
                 machineField.setAccessible(true);
@@ -119,31 +122,59 @@ public final class MachineGUISourceEditorTest {
             });
 
             checkFx("startup leaves source actions disabled", () -> {
-                expect(recompile.isDisabled(), "Recompile must be disabled without a source workspace");
+                expect(compile.isDisabled(), "Compile must be disabled without a source workspace");
+                expect("Compile".equals(compile.getText()), "source compilation uses the Compile action");
+                expect("Open".equals(node("open-source", Button.class).getText()), "source browsing uses the Open action");
                 expect(save.isDisabled(), "Save source must be disabled without a document");
                 expect(!node("source-status", Label.class).getText().isBlank(), "source status is visible");
             });
 
-            checkFx("opening CR-delimited source preserves editor line boundaries", () -> {
-                application.openSourceFile(carriageReturnPath);
-                TextArea carriageReturnEditor = editor(tabFor(carriageReturnPath));
-                expect(carriageReturnSource.lines().toList().equals(carriageReturnEditor.getText().lines().toList()),
-                        "visible source lines must match the compiled document even with CR delimiters");
+            checkFx("opening a library only browses source without compiling", () -> {
+                List<Integer> memoryBefore = memory();
+                application.openSourceFile(libraryPath);
+                libraryTab = tabFor(libraryPath);
+                libraryEditor = editor(libraryTab);
+                expect(tabs.getTabs().size() == 1 && tabs.getSelectionModel().getSelectedItem() == libraryTab,
+                        "a library must open as the selected source tab");
+                expect(libraryOriginal.equals(libraryEditor.getText()), "library source remains editable");
+                expect(compile.isDisabled() && !libraryTab.getText().contains("(main)"),
+                        "a file without begin must not become the main program");
+                expect(memoryBefore.equals(memory()) && machine.getStepCounter() == 0,
+                        "opening a library must not compile or change machine state");
             });
 
-            checkFx("opening a program displays its main and imported files", () -> {
-                application.openSourceFile(mainPath);
-                expect(tabs.getTabs().size() == 2, "main and library must each have a tab");
+            checkFx("opening CR-delimited source preserves editor line boundaries", () -> {
+                application.openSourceFile(carriageReturnPath);
+                carriageReturnTab = tabFor(carriageReturnPath);
+                carriageReturnEditor = editor(carriageReturnTab);
+                expect(carriageReturnSource.lines().toList().equals(carriageReturnEditor.getText().lines().toList()),
+                        "visible source lines must match the compiled document even with CR delimiters");
+                carriageReturnEditor.setText(carriageReturnDraft);
+            });
+
+            checkFx("opening a program retains old buffers and reuses its imported library tab", () -> {
+                try (DialogResponse response = new DialogResponse("Discard")) {
+                    application.openSourceFile(mainPath);
+                    expect(response.count == 0, "Open must not ask to discard existing source edits");
+                }
+                expect(tabs.getTabs().size() == 3, "library, previous program, and new main must each keep one tab");
                 mainTab = tabFor(mainPath);
-                libraryTab = tabFor(libraryPath);
+                expect(libraryTab == tabFor(libraryPath), "compiling an import must reuse its already open tab");
                 mainEditor = editor(mainTab);
-                libraryEditor = editor(libraryTab);
+                expect(tabs.getTabs().get(0) != mainTab && mainTab.getText().contains("(main)"),
+                        "opening a program activates it even when it is not the first tab");
+                expect(tabFor(carriageReturnPath) == carriageReturnTab
+                                && carriageReturnDraft.equals(carriageReturnEditor.getText())
+                                && document(carriageReturnTab).isModified(),
+                        "opening another program preserves the previous tab and its unsaved buffer");
+                expect(carriageReturnSource.equals(Files.readString(carriageReturnPath)),
+                        "opening another program must not save previous edits");
                 expect(mainEditor instanceof SourceEditor && libraryEditor instanceof SourceEditor,
                         "main and import tabs must both use syntax-highlighting editors");
                 expect(mainOriginal.equals(mainEditor.getText()), "main editor must show file contents");
                 expect(libraryOriginal.equals(libraryEditor.getText()), "import editor must show file contents");
                 expect(!document(mainTab).isModified() && !document(libraryTab).isModified(), "opened files start clean");
-                expect(!recompile.isDisabled(), "opening source enables Recompile");
+                expect(!compile.isDisabled(), "opening source enables Compile");
                 expect(machine.get(1) == 1 && machine.getStepCounter() == 0, "opening compiles the main program");
             });
 
@@ -169,17 +200,55 @@ public final class MachineGUISourceEditorTest {
                 tabs.getSelectionModel().select(mainTab);
             });
 
-            checkFx("Recompile uses unsaved buffers while an import tab is selected", () -> {
+            checkFx("Compile uses unsaved buffers while an import tab is selected", () -> {
                 mainEditor.setText(mainChanged);
                 libraryEditor.setText(libraryChanged);
                 tabs.getSelectionModel().select(libraryTab);
                 expect(mainTab.getText().contains("*") && libraryTab.getText().contains("*"), "both edits need dirty markers");
-                recompile.fire();
+                compile.fire();
                 machine.step(1000);
                 expect(machine.isHalted() && machine.get(1) == 4, "main value 2 plus two unsaved import increments must equal 4");
                 expect(mainOriginal.equals(Files.readString(mainPath)), "compilation must not save main source");
                 expect(libraryOriginal.equals(Files.readString(libraryPath)), "compilation must not save imported source");
                 expect(document(mainTab).isModified() && document(libraryTab).isModified(), "compilation must keep unsaved state");
+            });
+
+            checkFx("reopening a dirty main compiles its cached buffer without replacing tabs", () -> {
+                List<Tab> tabsBefore = new ArrayList<>(tabs.getTabs());
+                try (DialogResponse response = new DialogResponse("Discard")) {
+                    application.openSourceFile(mainPath);
+                    expect(response.count == 0, "reopening a cached file must not ask to discard edits");
+                }
+                expect(tabsBefore.equals(tabs.getTabs()) && mainEditor == editor(tabFor(mainPath)),
+                        "reopening must preserve all tabs and the cached editor instance");
+                expect(mainChanged.equals(mainEditor.getText()) && document(mainTab).isModified(),
+                        "cached unsaved source must take precedence over disk contents");
+                expect(machine.get(1) == 2 && machine.getStepCounter() == 0,
+                        "reopening main automatically compiles the unsaved initial value");
+                machine.step(1000);
+                expect(machine.isHalted() && machine.get(1) == 4,
+                        "reopening also compiles the unsaved imported buffer");
+                expect(mainOriginal.equals(Files.readString(mainPath))
+                                && libraryOriginal.equals(Files.readString(libraryPath)),
+                        "reopening source must not save either edited file");
+            });
+
+            checkFx("opening a cached library preserves the active program and execution state", () -> {
+                List<Integer> memoryBefore = memory();
+                int stepsBefore = machine.getStepCounter();
+                List<Tab> tabsBefore = new ArrayList<>(tabs.getTabs());
+                try (DialogResponse response = new DialogResponse("Discard")) {
+                    application.openSourceFile(libraryPath);
+                    expect(response.count == 0, "browsing an import must not prompt about unsaved source");
+                }
+                expect(tabsBefore.equals(tabs.getTabs()) && tabs.getSelectionModel().getSelectedItem() == libraryTab,
+                        "reopening a library selects its existing tab");
+                expect(libraryChanged.equals(libraryEditor.getText()) && document(libraryTab).isModified(),
+                        "reopening a library must retain its unsaved source");
+                expect(mainTab.getText().contains("(main)") && !compile.isDisabled(),
+                        "browsing a library keeps the existing main active");
+                expect(memoryBefore.equals(memory()) && stepsBefore == machine.getStepCounter(),
+                        "browsing a library must not recompile or reset execution");
             });
 
             checkFx("Save source writes only the selected document", () -> {
@@ -229,7 +298,7 @@ public final class MachineGUISourceEditorTest {
                 mainEditor.setText(invalidMain);
                 libraryEditor.setText(importDraft);
                 try (DialogResponse response = new DialogResponse("OK")) {
-                    recompile.fire();
+                    compile.fire();
                     expect(response.count == 1, "invalid source must produce an error dialog");
                 }
                 expect(memoryBefore.equals(memory()) && stepsBefore == machine.getStepCounter(), "failed compilation must preserve VM memory and steps");
@@ -296,7 +365,7 @@ public final class MachineGUISourceEditorTest {
     private static Tab tabFor(Path path) {
         return tabs.getTabs().stream()
                 .filter(tab -> tab.getUserData() instanceof SourceWorkspace.Document)
-                .filter(tab -> document(tab).getPath().equals(path.toAbsolutePath().normalize()))
+                .filter(tab -> path.toAbsolutePath().normalize().equals(document(tab).getPath()))
                 .findFirst().orElseThrow(() -> new AssertionError("No source tab for " + path));
     }
 

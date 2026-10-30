@@ -71,7 +71,7 @@ public class MachineGUI extends Application {
     private SourceTrace displayedTrace;
     private boolean displayedHalted;
     private Button saveSourceButton;
-    private Button recompileButton;
+    private Button compileButton;
     private final Map<SourceWorkspace.Document, Tab> sourceEditors = new LinkedHashMap<>();
     private final List<Button> controlsDisabledWhileRunning = new ArrayList<>();
     public static void main(String[] args) {
@@ -205,10 +205,11 @@ public class MachineGUI extends Application {
         Button saveButton = new Button("Save");
         Button loadButton = new Button("Load");
         Button reloadButton = new Button("Reload");
-        Button compileButton = new Button("Compile");
-        recompileButton = new Button("Recompile");
-        recompileButton.setId("recompile");
-        recompileButton.setDisable(true);
+        Button openButton = new Button("Open");
+        openButton.setId("open-source");
+        compileButton = new Button("Compile");
+        compileButton.setId("compile");
+        compileButton.setDisable(true);
         Button resetButton = new Button("Reset");
         Button runButton = new Button("Run");
         Button stopButton = new Button("Stop");
@@ -221,21 +222,21 @@ public class MachineGUI extends Application {
 
         reloadButton.setOnAction(e -> {
                     machine.reload();
-                    invalidateSourceMapping("Memory reloaded. Recompile to restore source tracking.");
+                    invalidateSourceMapping("Memory reloaded. Compile to restore source tracking.");
                     updateMemoryDisplay();
-                    sourceStatusLabel.setText("Memory reloaded. Recompile to run the source tabs.");
+                    sourceStatusLabel.setText("Memory reloaded. Compile to run the source tabs.");
             });
 
-        compileButton.setOnAction(e -> compileMemoryFromFile(primaryStage));
+        openButton.setOnAction(e -> openSourceChooser(primaryStage));
 
-        recompileButton.setOnAction(e -> compileSourceTabs());
-        recompileButton.setTooltip(new Tooltip("Compile the current contents of the source tabs"));
+        compileButton.setOnAction(e -> compileSourceTabs());
+        compileButton.setTooltip(new Tooltip("Compile the active main file and its imports from the source tabs"));
 
         resetButton.setOnAction(e -> {
                     machine.reset();
-                    invalidateSourceMapping("Memory reset. Recompile to restore source tracking.");
+                    invalidateSourceMapping("Memory reset. Compile to restore source tracking.");
                     updateMemoryDisplay();
-                    sourceStatusLabel.setText("Memory reset. Recompile to run the source tabs.");
+                    sourceStatusLabel.setText("Memory reset. Compile to run the source tabs.");
             });
 
         stopButton.setDisable(true); // only enabled while running
@@ -339,12 +340,12 @@ public class MachineGUI extends Application {
 
         SplitPane workspace = new SplitPane(customPane, createSourceEditor());
         workspace.setDividerPositions(0.45);
-        FlowPane buttonBox = new FlowPane(5, 5, saveButton, loadButton, reloadButton, compileButton, recompileButton, resetButton, runButton, stopButton, stepButton, stepNButton);
+        FlowPane buttonBox = new FlowPane(5, 5, saveButton, loadButton, reloadButton, openButton, compileButton, resetButton, runButton, stopButton, stepButton, stepNButton);
         buttonBox.setPadding(new Insets(6));
         VBox vbox = new VBox(2, buttonBox, workspace);
         VBox.setVgrow(workspace, Priority.ALWAYS);
         controlsDisabledWhileRunning.addAll(List.of(saveButton, loadButton, reloadButton,
-                compileButton, recompileButton, resetButton));
+                openButton, compileButton, resetButton));
 
         Scene scene = new Scene(vbox, 1100, 650);
         scene.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
@@ -391,7 +392,12 @@ public class MachineGUI extends Application {
 
     private void restoreSourceControls() {
         controlsDisabledWhileRunning.forEach(button -> button.setDisable(false));
-        recompileButton.setDisable(sourceWorkspace == null);
+        updateCompileAvailability();
+    }
+
+    private void updateCompileAvailability() {
+        compileButton.setDisable(runTimer != null || sourceWorkspace == null
+                || sourceWorkspace.getMainDocument() == null);
     }
 
     // Save memory data to a file
@@ -421,14 +427,14 @@ public class MachineGUI extends Application {
 
         if (selectedFile != null) {
             machine.load(selectedFile.getAbsolutePath());
-            invalidateSourceMapping("Memory loaded. Recompile to restore source tracking.");
+            invalidateSourceMapping("Memory loaded. Compile to restore source tracking.");
             updateMemoryDisplay();
-            sourceStatusLabel.setText("Memory loaded. Recompile to run the source tabs.");
+            sourceStatusLabel.setText("Memory loaded. Compile to run the source tabs.");
             //refreshScene(primaryStage);
         }
     }
 
-    private void compileMemoryFromFile(Stage primaryStage) {
+    private void openSourceChooser(Stage primaryStage) {
         FileChooser fileChooser = new FileChooser();
         fileChooser.setTitle("Open Source File");
         fileChooser.setInitialDirectory(new File(System.getProperty("user.dir"))); // Starts in the current directory
@@ -445,9 +451,28 @@ public class MachineGUI extends Application {
         sourceTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
         sourceTabs.getSelectionModel().selectedItemProperty().addListener(
                 (observable, previous, selected) -> updateSourceSelection());
-        Label emptyMessage = new Label("Choose Compile to open a program and its imports.");
+        sourceTabs.addEventHandler(MouseEvent.MOUSE_CLICKED, event -> {
+            if (event.getButton() == MouseButton.PRIMARY && event.getClickCount() == 2
+                    && event.getTarget() instanceof Node target) {
+                // The skin selects the tab on mouse press. Only header clicks
+                // activate it; double-clicking editor text still selects words.
+                for (Node node = target; node != null && node != sourceTabs; node = node.getParent()) {
+                    if (node.getStyleClass().contains("tab")) {
+                        activateSource(selectedSourceDocument());
+                        event.consume();
+                        break;
+                    }
+                }
+            }
+        });
+        Label emptyMessage = new Label("Choose New to start a file, or Open to edit an existing one.");
         emptyMessage.setPadding(new Insets(16));
         sourceTabs.getTabs().add(new Tab("Source", emptyMessage));
+
+        Button newSourceButton = new Button("New");
+        newSourceButton.setId("new-source");
+        newSourceButton.setTooltip(new Tooltip("Open an empty, unnamed source tab"));
+        newSourceButton.setOnAction(event -> newSource());
 
         saveSourceButton = new Button("Save source");
         saveSourceButton.setId("save-source");
@@ -462,7 +487,8 @@ public class MachineGUI extends Application {
             followedTrace = null;
             updateSourceExecution();
         });
-        HBox toolbar = new HBox(8, new Label("Source files"), saveSourceButton, followExecution);
+        HBox toolbar = new HBox(8, new Label("Source files"), newSourceButton,
+                saveSourceButton, followExecution);
         toolbar.setAlignment(Pos.CENTER_LEFT);
         toolbar.setPadding(new Insets(6));
 
@@ -489,26 +515,79 @@ public class MachineGUI extends Application {
         return editor;
     }
 
+    private void newSource() {
+        SourceWorkspace.Document document;
+        if (sourceWorkspace == null) {
+            sourceWorkspace = SourceWorkspace.create();
+            document = sourceWorkspace.getDocuments().get(0);
+            sourceTabs.getTabs().clear();
+        } else {
+            document = sourceWorkspace.newDocument();
+        }
+        refreshSourceTabs();
+        Tab tab = sourceEditors.get(document);
+        sourceTabs.getSelectionModel().select(tab);
+        updateCompileAvailability();
+        sourceStatusLabel.setText("New source. Save source to choose a filename.");
+        Platform.runLater(() -> {
+            if (sourceTabs.getSelectionModel().getSelectedItem() == tab) {
+                tab.getContent().requestFocus();
+            }
+        });
+    }
+
     void openSourceFile(Path path) {
-        if (runTimer != null || !confirmSaveSources()) {
+        if (runTimer != null) {
             return;
         }
         try {
-            SourceWorkspace opened = SourceWorkspace.open(path);
-            invalidateSourceMapping("Source program opened. Compile to track execution.");
-            sourceWorkspace = opened;
-            sourceTabs.getTabs().clear();
-            sourceEditors.clear();
+            SourceWorkspace.Document document;
+            if (sourceWorkspace == null) {
+                sourceWorkspace = SourceWorkspace.open(path);
+                document = sourceWorkspace.getDocuments().get(0);
+                sourceTabs.getTabs().clear();
+            } else {
+                document = sourceWorkspace.openDocument(path);
+            }
             refreshSourceTabs();
-            recompileButton.setDisable(false);
-            compileSourceTabs();
+            sourceTabs.getSelectionModel().select(sourceEditors.get(document));
+            if (document.hasBeginMarker()) {
+                activateSource(document);
+            } else {
+                sourceStatusLabel.setText("Opened " + document.getDisplayName()
+                        + ". A main file needs a top-level begin: marker.");
+            }
         } catch (IOException | RuntimeException exception) {
             showSourceError("Source file error", exception);
         }
     }
 
+    private void activateSource(SourceWorkspace.Document document) {
+        if (document == null) {
+            return;
+        }
+        if (runTimer != null) {
+            sourceStatusLabel.setText("Stop execution before changing the main file.");
+            return;
+        }
+        if (!document.hasBeginMarker()) {
+            sourceStatusLabel.setText("Cannot activate " + document.getDisplayName()
+                    + ": a main file needs a top-level begin: marker.");
+            return;
+        }
+        sourceWorkspace.setMainDocument(document);
+        invalidateSourceMapping("Main file activated. Compile to track execution.");
+        refreshSourceTabs();
+        compileSourceTabs();
+    }
+
     private void compileSourceTabs() {
         if (sourceWorkspace == null || runTimer != null) {
+            return;
+        }
+        if (sourceWorkspace.getMainDocument() == null) {
+            sourceStatusLabel.setText("No active main file. Add begin: to a source file and double-click its tab.");
+            refreshSourceTabs();
             return;
         }
         try {
@@ -518,7 +597,7 @@ public class MachineGUI extends Application {
             followedTrace = null;
             refreshSourceTabs();
             updateMemoryDisplay();
-            sourceStatusLabel.setText("Compiled " + sourceWorkspace.getMainDocument().getPath().getFileName()
+            sourceStatusLabel.setText("Compiled " + sourceWorkspace.getMainDocument().getDisplayName()
                     + " from the source tabs.");
         } catch (IOException | ParseException | RuntimeException | TokenMgrError exception) {
             sourceStatusLabel.setText("Compilation failed. Machine memory is unchanged.");
@@ -540,35 +619,49 @@ public class MachineGUI extends Application {
                 // TextArea removes carriage returns; preserve their line boundaries.
                 String editorText = document.getText().replace("\r\n", "\n").replace('\r', '\n');
                 SourceEditor editor = new SourceEditor(editorText);
-                editor.setAccessibleText("Source editor for " + document.getPath());
                 tab = new Tab();
                 tab.setContent(editor);
                 tab.setUserData(document);
-                tab.setTooltip(new Tooltip(document.getPath().toString()));
                 sourceEditors.put(document, tab);
                 editor.textProperty().addListener((observable, previous, text) -> {
                     document.setText(text);
-                    invalidateSourceMapping("Source changed. Recompile to restore source tracking.");
-                    updateSourceTabTitle(document);
-                    updateSourceSelection();
-                    sourceStatusLabel.setText("Source changed. Recompile to update machine memory.");
+                    invalidateSourceMapping("Source changed. Compile to restore source tracking.");
+                    if (runTimer == null && sourceWorkspace.getMainDocument() == null
+                            && document.hasBeginMarker()) {
+                        sourceWorkspace.setMainDocument(document);
+                    }
+                    refreshSourceTabs();
+                    sourceStatusLabel.setText(sourceWorkspace.getMainDocument() == null
+                            ? (runTimer == null ? "A main file needs a top-level begin: marker."
+                                : "Stop execution, then double-click a file containing begin:.")
+                            : "Source changed. Compile to update machine memory.");
                 });
                 sourceTabs.getTabs().add(tab);
             }
             updateSourceTabTitle(document);
         }
         updateSourceSelection();
+        updateCompileAvailability();
     }
 
     private void updateSourceTabTitle(SourceWorkspace.Document document) {
-        String title = document.getPath().getFileName().toString();
+        String title = document.getDisplayName();
         if (document == sourceWorkspace.getMainDocument()) {
             title += " (main)";
         }
         if (document.isModified()) {
             title += " *";
         }
-        sourceEditors.get(document).setText(title);
+        Tab tab = sourceEditors.get(document);
+        tab.setText(title);
+        String description = sourceDescription(document);
+        tab.setTooltip(new Tooltip(description + "\nDouble-click to activate and compile (requires begin:)."));
+        tab.getContent().setAccessibleText("Source editor for " + description);
+    }
+
+    private String sourceDescription(SourceWorkspace.Document document) {
+        return document.isUntitled() ? document.getDisplayName() + " (not saved)"
+                : document.getPath().toString();
     }
 
     private SourceWorkspace.Document selectedSourceDocument() {
@@ -583,23 +676,53 @@ public class MachineGUI extends Application {
             return;
         }
         SourceWorkspace.Document selected = selectedSourceDocument();
-        saveSourceButton.setDisable(selected == null || !selected.isModified());
-        sourcePathLabel.setText(selected == null ? "" : selected.getPath().toString());
-        sourcePathLabel.setTooltip(selected == null ? null : new Tooltip(selected.getPath().toString()));
+        saveSourceButton.setDisable(selected == null || (!selected.isUntitled() && !selected.isModified()));
+        sourcePathLabel.setText(selected == null ? "" : sourceDescription(selected));
+        sourcePathLabel.setTooltip(selected == null ? null : new Tooltip(sourceDescription(selected)));
     }
 
     private void saveSelectedSource() {
         SourceWorkspace.Document document = selectedSourceDocument();
-        if (document == null) {
-            return;
+        if (document != null) {
+            saveSourceDocument(document);
         }
+    }
+
+    private boolean saveSourceDocument(SourceWorkspace.Document document) {
         try {
-            sourceWorkspace.save(document);
+            if (document.isUntitled()) {
+                Path path = chooseSourceSavePath(document);
+                if (path == null) {
+                    return false;
+                }
+                sourceWorkspace.saveAs(document, path);
+                if (compiledProgram != null && document == sourceWorkspace.getMainDocument()) {
+                    invalidateSourceMapping("Source file named. Compile to restore source tracking.");
+                }
+            } else {
+                sourceWorkspace.save(document);
+            }
             updateSourceTabTitle(document);
             updateSourceSelection();
+            sourceStatusLabel.setText("Saved " + document.getDisplayName() + ".");
+            return true;
         } catch (IOException | RuntimeException exception) {
             showSourceError("Save source error", exception);
+            return false;
         }
+    }
+
+    // Kept separate from saving so cancellation leaves the document untouched.
+    Path chooseSourceSavePath(SourceWorkspace.Document document) {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Save source");
+        chooser.setInitialDirectory(new File(System.getProperty("user.dir")));
+        chooser.setInitialFileName(document.getDisplayName() + ".ad04");
+        chooser.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter("Source files", "*.ad04"),
+                new FileChooser.ExtensionFilter("All files", "*"));
+        File selected = chooser.showSaveDialog(currentStage);
+        return selected == null ? null : selected.toPath();
     }
 
     private boolean confirmSaveSources() {
@@ -620,15 +743,12 @@ public class MachineGUI extends Application {
         if (answer != saveAll) {
             return false;
         }
-        try {
-            sourceWorkspace.saveAll();
-            refreshSourceTabs();
-            return true;
-        } catch (IOException | RuntimeException exception) {
-            refreshSourceTabs();
-            showSourceError("Save source error", exception);
-            return false;
+        for (SourceWorkspace.Document document : sourceWorkspace.getDocuments()) {
+            if (document.isModified() && !saveSourceDocument(document)) {
+                return false;
+            }
         }
+        return true;
     }
 
     private void showSourceError(String title, Throwable exception) {
@@ -668,8 +788,14 @@ public class MachineGUI extends Application {
     }
 
     private Tab sourceTab(SourceLocation location) {
+        // Only the main document can be compiled without a path. Other unnamed
+        // tabs are drafts and must not receive its execution markers.
+        if (location.file() == null) {
+            SourceWorkspace.Document main = sourceWorkspace.getMainDocument();
+            return main != null && main.isUntitled() ? sourceEditors.get(main) : null;
+        }
         for (Map.Entry<SourceWorkspace.Document, Tab> entry : sourceEditors.entrySet()) {
-            if (entry.getKey().getPath().equals(location.file())) {
+            if (location.file().equals(entry.getKey().getPath())) {
                 return entry.getValue();
             }
         }
@@ -685,7 +811,14 @@ public class MachineGUI extends Application {
     }
 
     private String formatSourceLocation(SourceLocation location) {
-        return location.file().getFileName() + ":" + location.line() + ":" + location.column();
+        String name = location.file() == null ? sourceWorkspace.getMainDocument().getDisplayName()
+                : location.file().getFileName().toString();
+        return name + ":" + location.line() + ":" + location.column();
+    }
+
+    private Tooltip sourceLocationTooltip(SourceLocation location) {
+        return new Tooltip(location.file() == null ? sourceDescription(sourceWorkspace.getMainDocument())
+                : location.file().toString());
     }
 
     private void updateSourceExecution() {
@@ -696,7 +829,7 @@ public class MachineGUI extends Application {
         // overwrite instructions, in which case their source no longer applies.
         for (int address = compiledProgram.codeStart(); address < compiledProgram.bytecode().size(); address++) {
             if (machine.get(address) != compiledProgram.bytecode().get(address)) {
-                invalidateSourceMapping("Compiled instructions changed. Recompile to restore source tracking.");
+                invalidateSourceMapping("Compiled instructions changed. Compile to restore source tracking.");
                 return;
             }
         }
@@ -717,7 +850,7 @@ public class MachineGUI extends Application {
         }
         executionStatusLabel.setText((halted ? "Halted: " : "Next: ")
                 + formatSourceLocation(location) + " · i = " + instructionPointer);
-        executionStatusLabel.setTooltip(new Tooltip(location.file().toString()));
+        executionStatusLabel.setTooltip(sourceLocationTooltip(location));
         if (followExecution.isSelected() && !trace.equals(followedTrace)) {
             revealSourceLocation(location);
         }
@@ -745,7 +878,7 @@ public class MachineGUI extends Application {
                 executionCallers.getChildren().add(new Label("→"));
             }
             Hyperlink link = new Hyperlink(formatSourceLocation(caller));
-            link.setTooltip(new Tooltip(caller.file().toString()));
+            link.setTooltip(sourceLocationTooltip(caller));
             link.setOnAction(event -> revealSourceLocation(caller));
             executionCallers.getChildren().add(link);
         }

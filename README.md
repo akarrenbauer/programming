@@ -45,9 +45,9 @@ required to display the window.
 
 ### First program
 
-Save this complete program as a source file of your own, then click **Compile** in
-the simulator and select that file. No example file from the working tree is
-needed.
+Click **New** in the source toolbar, enter this complete program, then click
+**Compile**. Use **Save source** to choose a filename when ready. No example
+file from the working tree is needed.
 
 ```text
 var left = 3;
@@ -63,21 +63,22 @@ HALT;
 
 Click **Step** to execute individual machine instructions, or **Run** to finish.
 The loop transfers three units from `left` into `right`: address `1` ends at `0`
-and address `2` ends at `7`. Use **Recompile** to restore the initial program state.
+and address `2` ends at `7`. Use **Compile** to restore the initial program state.
 A source statement can compile to several machine instructions.
 
 ## Use the simulator
 
 | Control | Behavior |
 | --- | --- |
-| **Compile** | Open a source program and its imports in editor tabs, compile it, replace memory, and reset the step counter. |
-| **Recompile** | Compile the current contents of the source tabs, including unsaved edits. Use **Compile** first. |
-| **Save source** | Save the selected source tab to its file. Ctrl+S / Command+S does the same. |
+| **New** | Open an empty, unnamed source tab without changing machine memory or closing other tabs. |
+| **Open** | Open a source file in a tab. If it contains a top-level `begin:` marker, activate it as main and attempt compilation. |
+| **Compile** | Compile the active main file and its imports from the current editor contents, including unsaved edits. Successful compilation replaces memory and resets the step counter. |
+| **Save source** | Save the selected source tab, choosing a filename for an unnamed tab. Ctrl+S / Command+S does the same. |
 | **Follow execution** | Automatically show the source statement for the next instruction as execution advances. |
 | **Load** | Load a raw integer memory image, replacing memory and resetting the counter. |
-| **Reload** | Reread the last memory file chosen with **Load**, independently of the source chosen with **Compile**. |
+| **Reload** | Reread the last memory file chosen with **Load**, independently of the source chosen with **Open**. |
 | **Save** | Save the current memory snapshot, including the instruction pointer. It does not save source or change the **Reload** target. |
-| **Reset** | Clear memory and the step counter. Use **Recompile** or **Reload** to restart the original program. |
+| **Reset** | Clear memory and the step counter. Use **Compile** or **Reload** to restart the original program. |
 | **Run** / **Stop** | Execute until `HALT` or pause while preserving the current state. |
 | **Step** | Execute one instruction; do nothing at `HALT`. |
 | **Step n** | Execute at most a nonnegative number of instructions, stopping earlier at `HALT`. |
@@ -85,25 +86,46 @@ A source statement can compile to several machine instructions.
 
 ### Edit source files
 
-The first source tab is marked **(main)**; imported files open in additional
-tabs. The selected file's full path appears below the editor and in its tab's
+The active main tab is marked **(main)**; it need not be the first tab. For named
+files, the full path appears below the editor and in the tab's
 tooltip. A `*` marks unsaved changes. **Save source** saves that tab;
 **Save** in the main toolbar saves machine memory.
+
+**New** adds a blank **Untitled** tab; further new tabs receive numbered names.
+No file is created until **Save source** succeeds. Canceling the filename dialog
+keeps the tab and its contents. A blank draft is not a main file. When no main is
+active, adding a top-level `begin:` marker activates that draft and enables
+**Compile**. An unnamed main can be compiled and stepped through before saving;
+its first save gives it a file identity, so compile again to restore source
+tracking afterward.
+
+**Open** retains all existing tabs and unsaved edits. An opened file with a
+top-level `begin:` marker becomes main and is compiled automatically. A file
+without that marker opens for editing and leaves the active main and machine
+state unchanged. Markers in comments, quoted paths, or nested blocks do not count.
+
+Single-click a tab to browse its source. **Double-click its header** to activate
+and compile it as main; it must contain a top-level `begin:` marker. **Compile**
+always uses the active main, even while another tab is selected. Removing the
+main's marker clears its active status and disables **Compile**. Stop execution
+before opening or activating another main.
 
 Source tabs highlight keywords, machine instructions, numbers, quoted paths,
 comments, labels, and macro names as you type. Highlighting also works while
 statements are incomplete; compilation still checks whether the program is valid.
 
-**Recompile** uses the current editor contents without saving them. New imports
+**Compile** uses the current editor contents without saving them. New imports
 open when compilation reaches them, using the compiler's existing paths relative
-to the working directory. Already opened tabs keep their current contents;
-use **Compile** to reopen a program when you want to load external file changes.
+to the working directory. Already opened tabs keep their current contents,
+including when opened again; reopening does not discard edits or reread the file.
 Removing an import leaves its tab open so edits can still be saved, but that file
 is included in compilation only while the main program imports it.
 
 Compilation errors leave the source tabs available for correction and preserve
-the previous machine memory. Before switching programs or closing the window,
-unsaved changes offer **Save all**, **Discard**, or **Cancel**. **Home** works
+the previous machine memory. Before closing the window, unsaved changes offer
+**Save all**, **Discard**, or **Cancel**. **Save all** asks for filenames for edited
+unnamed tabs; canceling a filename dialog cancels the close. Untouched empty drafts
+need no save prompt. **Home** works
 normally inside the editor. Stop execution before recompiling or replacing
 memory; those controls are disabled while the machine runs.
 
@@ -125,7 +147,7 @@ including bodies in imported files. Its call sites have a pale blue background;
 **Called from** links let you visit the calls from outermost to innermost. Literal
 argument preparation points to the call that caused it.
 
-Editing source clears execution tracking until the next successful **Recompile**.
+Editing source clears execution tracking until the next successful **Compile**.
 Saving alone does not restore it. Changing compiled instruction or operand cells,
 including changes made by the running program, also clears tracking. Data edits
 and changes to `i` keep tracking while the compiled code remains intact. **Load**,
@@ -144,7 +166,7 @@ code share memory, so changing instruction cells or address `0` changes executio
 Stop before editing, loading, or saving. Large **Step n** batches run synchronously
 and can delay the interface.
 
-**Compile** accepts source text. **Load** accepts one nonnegative decimal integer
+**Open** accepts source files. **Load** accepts one nonnegative decimal integer
 per memory cell, starting with address `0`. Write these integers without
 indentation: the current loader reads leading integers and skips lines that do
 not start with a parseable integer. Skipped lines do not reserve addresses. A

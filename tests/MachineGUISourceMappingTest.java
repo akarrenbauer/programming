@@ -65,6 +65,7 @@ public final class MachineGUISourceMappingTest {
             + "void outer(value) {\n    leaf(value);\n}\n";
     private static int passed;
     private static int failed;
+    private static int fixtureNumber;
     private static MachineGUI application;
     private static Stage stage;
     private static Machine machine;
@@ -84,7 +85,9 @@ public final class MachineGUISourceMappingTest {
         mainPath = directory.resolve("main.ad04");
         libraryPath = directory.resolve("library.ad04");
         invalidPath = directory.resolve("invalid.ad04");
+        Path browsingLibraryPath = directory.resolve("browsing-library.ad04");
         Files.writeString(libraryPath, LIBRARY);
+        Files.writeString(browsingLibraryPath, "void unused(value) { INC value; }\n");
         Files.writeString(invalidPath, "var result = 0;\nbegin:\nINC missing;\nHALT;\n");
 
         AtomicReference<Throwable> asynchronousError = new AtomicReference<>();
@@ -126,6 +129,24 @@ public final class MachineGUISourceMappingTest {
                 button("Step").fire();
                 expectRange(main, "HALT;");
                 expect(machine.getStepCounter() == 2, "stepping HALT does not advance the counter");
+            });
+
+            checkFx("opening a library preserves the active program and its execution mapping", () -> {
+                SourceEditor main = editor(mainPath);
+                Object compilation = field("compiledProgram");
+                List<Integer> before = memory();
+                int steps = machine.getStepCounter();
+                application.openSourceFile(browsingLibraryPath);
+                expect(tabs.getSelectionModel().getSelectedItem() == tab(browsingLibraryPath),
+                        "Open selects the library for browsing");
+                expect(tab(mainPath).getText().contains("(main)")
+                                && !tab(browsingLibraryPath).getText().contains("(main)"),
+                        "opening source without begin keeps the previous main active");
+                expect(field("compiledProgram") == compilation && before.equals(memory())
+                                && steps == machine.getStepCounter(),
+                        "opening a library must preserve compiled provenance and VM state");
+                expectRange(main, "HALT;");
+                expect(main.isExecutionHalted(), "browsing another source preserves the current halted marker");
             });
 
             check("nested imported macros show body and ordered caller locations", () -> {
@@ -187,7 +208,7 @@ public final class MachineGUISourceMappingTest {
                 SourceEditor main = editor(mainPath);
                 SourceEditor library = editor(libraryPath);
                 main.appendText("// unsaved history\n");
-                node("recompile", Button.class).fire();
+                node("compile", Button.class).fire();
                 main.selectRange(9, 2);
                 library.selectRange(7, 12);
                 String mainText = main.getText();
@@ -271,16 +292,16 @@ public final class MachineGUISourceMappingTest {
                 SourceEditor library = editor(libraryPath);
                 library.appendText("// changed import\n");
                 expectNoHighlights();
-                expect(status().toLowerCase().contains("recompile"), "edited source explains how to restore mapping");
+                expect(status().toLowerCase().contains("compile"), "edited source explains how to restore mapping");
                 tabs.getSelectionModel().select(tab(libraryPath));
                 node("save-source", Button.class).fire();
                 expect(!((SourceWorkspace.Document) tab(libraryPath).getUserData()).isModified(), "save writes the edited import");
                 expectNoHighlights();
-                node("recompile", Button.class).fire();
+                node("compile", Button.class).fire();
                 expectRange(editor(mainPath), "NOP;");
             });
 
-            checkFx("failed recompile preserves VM state and keeps mapping invalid", () -> {
+            checkFx("failed compile preserves VM state and keeps mapping invalid", () -> {
                 open(BASIC);
                 button("Step").fire();
                 List<Integer> before = memory();
@@ -288,10 +309,10 @@ public final class MachineGUISourceMappingTest {
                 SourceEditor main = editor(mainPath);
                 main.setText(main.getText().replace("HALT;", "INC missing; HALT;"));
                 try (DialogResponse response = new DialogResponse("OK")) {
-                    node("recompile", Button.class).fire();
-                    expect(response.count == 1, "failed recompile reports its error");
+                    node("compile", Button.class).fire();
+                    expect(response.count == 1, "failed compile reports its error");
                 }
-                expect(before.equals(memory()) && steps == machine.getStepCounter(), "failed recompile leaves VM unchanged");
+                expect(before.equals(memory()) && steps == machine.getStepCounter(), "failed compile leaves VM unchanged");
                 expectNoHighlights();
                 button("Step").fire();
                 expectNoHighlights();
@@ -300,12 +321,18 @@ public final class MachineGUISourceMappingTest {
             checkFx("opening invalid new source clears mapping for the previous program", () -> {
                 open(BASIC);
                 List<Integer> before = memory();
+                Tab previousMain = tab(mainPath);
                 try (DialogResponse response = new DialogResponse("OK")) {
                     application.openSourceFile(invalidPath);
                     expect(response.count == 1, "invalid new source reports compilation error");
                 }
                 expect(before.equals(memory()), "invalid new source leaves previous VM image intact");
                 expect(tab(invalidPath).getContent() instanceof SourceEditor, "new source stays editable after its error");
+                expect(tab(mainPath) == previousMain && BASIC.equals(editor(mainPath).getText()),
+                        "failed automatic compilation must retain the previous program tab and buffer");
+                expect(tab(invalidPath).getText().contains("(main)")
+                                && !previousMain.getText().contains("(main)"),
+                        "the opened program remains active and editable after compilation fails");
                 expectNoHighlights();
             });
 
@@ -333,7 +360,7 @@ public final class MachineGUISourceMappingTest {
                 open(BASIC);
                 editMemory(machine.getInstructionPointer(), 1);
                 expectNoHighlights();
-                node("recompile", Button.class).fire();
+                node("compile", Button.class).fire();
                 expectRange(editor(mainPath), "INC result;");
                 editMemory(machine.getInstructionPointer() + 1, 0);
                 expectNoHighlights();
@@ -352,11 +379,11 @@ public final class MachineGUISourceMappingTest {
                 open(BASIC);
                 button("Reset").fire();
                 expectNoHighlights();
-                node("recompile", Button.class).fire();
+                node("compile", Button.class).fire();
                 expectRange(editor(mainPath), "INC result;");
                 button("Reload").fire();
                 expectNoHighlights();
-                node("recompile", Button.class).fire();
+                node("compile", Button.class).fire();
                 machine.load(List.of(1, 0));
                 refreshDisplay();
                 expectNoHighlights();
@@ -400,11 +427,29 @@ public final class MachineGUISourceMappingTest {
     }
 
     private static void open(String source) throws Exception {
+        List<Tab> previousTabs = new ArrayList<>(tabs.getTabs());
+        List<String> previousTexts = previousTabs.stream()
+                .map(tab -> tab.getContent() instanceof SourceEditor editor ? editor.getText() : null).toList();
+        List<Boolean> previousDirtyStates = previousTabs.stream()
+                .map(tab -> tab.getUserData() instanceof SourceWorkspace.Document document && document.isModified()).toList();
+        // Open now preserves cached documents, so each independent fixture gets
+        // its own filename instead of overwriting an already open file on disk.
+        mainPath = mainPath.resolveSibling("main-" + ++fixtureNumber + ".ad04");
         Files.writeString(mainPath, source);
-        Files.writeString(libraryPath, LIBRARY);
         try (DialogResponse response = new DialogResponse("Discard", "OK")) {
             application.openSourceFile(mainPath);
             expect(response.errors == 0, "valid fixture must compile without an error dialog");
+            expect(response.count == 0, "Open must not prompt to save or discard existing buffers");
+        }
+        for (int index = 0; index < previousTabs.size(); index++) {
+            Tab previous = previousTabs.get(index);
+            if (previous.getContent() instanceof SourceEditor editor) {
+                expect(tabs.getTabs().contains(previous), "opening another main must preserve existing source tabs");
+                expect(previousTexts.get(index).equals(editor.getText()), "Open must retain previous buffer contents");
+                expect(previousDirtyStates.get(index)
+                                == ((SourceWorkspace.Document) previous.getUserData()).isModified(),
+                        "Open must preserve each previous document's dirty state");
+            }
         }
         if (!node("follow-execution", CheckBox.class).isSelected()) {
             node("follow-execution", CheckBox.class).fire();
@@ -420,7 +465,7 @@ public final class MachineGUISourceMappingTest {
     private static Tab tab(Path path) {
         return tabs.getTabs().stream()
                 .filter(tab -> tab.getUserData() instanceof SourceWorkspace.Document document
-                        && document.getPath().equals(path.toAbsolutePath().normalize()))
+                        && path.toAbsolutePath().normalize().equals(document.getPath()))
                 .findFirst().orElseThrow(() -> new AssertionError("No source tab for " + path));
     }
 

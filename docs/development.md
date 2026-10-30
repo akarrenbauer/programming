@@ -84,13 +84,35 @@ order, with the same relative or absolute path used by disk-based compilation.
 The `preProcess` and `includeImports` methods also accept this loader. Imported
 lines are not scanned recursively for imports.
 
-The GUI's `SourceWorkspace` opens the main document first and discovers imports
-as compilation requests them. Documents identify files by resolved paths, so
+The GUI's `SourceWorkspace` holds all opened documents and an optional active main.
+Imports are discovered as compilation requests them. Documents identify files by resolved paths, so
 repeated references and symbolic links share an editor buffer while their contents
-are expanded at every import occurrence. Compilation reads the current buffers; only `save` and
-`saveAll` write files. Open buffers remain available after compilation failures
+are expanded at every import occurrence. Compilation reads the current buffers;
+`save`, `saveAs`, and `saveAll` write files. Open buffers remain available after compilation failures
 or removal of an import. The workspace is independent of JavaFX and can be used
 without a GUI.
+
+`SourceWorkspace.create()` starts with an empty unnamed draft and no main;
+`newDocument()` adds another draft. `open(path)` initially opens one document and
+activates it if eligible. `openDocument(path)` opens or reuses a buffer without
+changing the main. `setMainDocument(document)` activates an owned document with a
+top-level `begin:` marker. `getMainDocument()` returns null if none is active and
+clears a main that has lost its marker; compilation without a main raises a
+`ParseException`. `SourceSyntax.hasBeginMarker` checks eligibility while ignoring
+comments, quoted paths, and nested braces. A marker does not establish that the
+rest of the program is valid.
+
+A document's
+`getPath()` is null until its first save, while `getDisplayName()` always supplies
+a tab name. `saveAs(document, path)` names an unnamed document, preserves its
+identity, and rejects a target already open in another buffer. A failed save
+leaves the document's name and dirty baseline unchanged. Empty untouched drafts
+are clean but can still be saved. The GUI requests paths when saving edited
+unnamed documents, and cancels a pending close if any chooser is canceled. Open
+preserves existing buffers. Eligible files are activated and compiled on Open or
+on a primary-button double-click of their tab header; ordinary selection and
+editor double-clicks do not change the main. The first eligible edit activates a
+document only when there is no main and execution is stopped, without compiling it.
 
 `SourceWorkspace.compileWithSourceMap()` returns a `CompilationResult` containing
 `bytecode`, `codeStart`, a `sourceMap` keyed by absolute opcode addresses, and the
@@ -99,6 +121,9 @@ without a GUI.
 file identity; the workspace resolves these to canonical paths. Source snapshots
 normalize CRLF and CR to LF to match the editor. Location offsets are UTF-16,
 start-inclusive and end-exclusive; line and column numbers start at one.
+For an unnamed main, source locations have a null file and the `sources` map
+contains only named imports. The GUI resolves those null locations to the main
+document and clears the mapping when its first save assigns a path.
 
 Preprocessing retains original ranges through imports, comment removal, statement
 splitting, and macro substitution. Each `SourceTrace` contains the statement's
