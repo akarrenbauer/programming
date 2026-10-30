@@ -37,6 +37,15 @@ global references are validated after the global declarations. Expansion then
 substitutes arguments and renames macro-local variables and labels. Another fresh
 parser runs `Program(false)` on the expanded source and rejects unresolved labels.
 
+The parser's `Statement` rule handles optional labels followed by a block,
+control-flow statement, or `SimpleStatement`. The latter consumes the semicolon
+for declarations, commands, macro calls, and empty statements. Macro definitions
+and all control-flow bodies reuse `Block`. A shared `Condition(branchOnTrue)`
+rule emits a branch test for a false condition in `if`/`while`, and a true condition
+in `do`/`while`. `Lhs` reuses `Variable` for variable references. Macro parameter
+and argument items have separate rules: arguments preserve literal/index text
+for substitution and do not allocate cells for literal values.
+
 The memory image contains data followed by code; cell zero holds the entry point.
 Variable lookup returns an address, whereas reading `dataSegment.get(address)`
 returns its initial value. Code-label addresses share mutable `machine.Number`

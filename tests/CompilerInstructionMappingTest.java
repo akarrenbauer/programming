@@ -114,6 +114,68 @@ public final class CompilerInstructionMappingTest {
             expectCoverage(parsed);
         });
 
+        check("stacked labels share targets without replacing command source lines", () -> {
+            Parsed parsed = parse("var x = 1;\nbegin:\nfirst: second: NOP;\nthird:\nfourth:\n"
+                    + "INC x;\nJNZ x first;\nJNZ x second;\nJNZ x third;\nJNZ x fourth;\nHALT;\n");
+            expect(Map.of(2, 3, 3, 6, 5, 7, 8, 8, 11, 9, 14, 10, 17, 11), parsed.lines(),
+                    "same-line and separate-line label prefixes preserve instruction lines");
+            expect(2, parsed.bytecode().get(7), "first same-line label target");
+            expect(2, parsed.bytecode().get(10), "second same-line label target");
+            expect(3, parsed.bytecode().get(13), "first separate-line label target");
+            expect(3, parsed.bytecode().get(16), "second separate-line label target");
+            expectCoverage(parsed);
+        });
+
+        check("repeated labels can prefix every statement and block form", () -> {
+            String[] statements = {";", "{\nNOP;\n}", "if(x == 0) {\nNOP;\n}",
+                    "while(x != 0) {\nNOP;\n}", "do {\nNOP;\n} while(x != 0);"};
+            int[] firstInstructionLines = {6, 6, 5, 5, 6};
+            for (int i = 0; i < statements.length; ++i) {
+                Parsed parsed = parse("var x = 0;\nbegin:\nfirst:\nsecond:\n" + statements[i]
+                        + "\nJNZ x first;\nJNZ x second;\nHALT;\n");
+                int size = parsed.bytecode().size();
+                expect(parsed.codeStart(), parsed.bytecode().get(size - 5), "first label targets the construct entry");
+                expect(parsed.codeStart(), parsed.bytecode().get(size - 2), "second label shares the construct entry");
+                expect(firstInstructionLines[i], parsed.lines().get(parsed.codeStart()),
+                        "labeled construct maps its own first emitted instruction");
+                Machine machine = new Machine();
+                machine.load(parsed.bytecode());
+                machine.step(1000);
+                expect(machine.isHalted(), "labeled statement fixture must finish");
+                expectCoverage(parsed);
+            }
+        });
+
+        check("labels still require a following statement at EOF and block close", () -> {
+            for (String source : new String[] {"begin: last:", "begin: first: second:",
+                    "begin: { last: }", "begin: { first:\nsecond:\n}"}) {
+                try {
+                    parse(source);
+                    throw new AssertionError("dangling labels must be rejected: " + source);
+                } catch (ParseException expected) {
+                    // An explicit empty statement ';' is valid, but a missing statement is not.
+                }
+            }
+        });
+
+        check("literal loop conditions and indexed operands retain branch polarity", () -> {
+            Parsed parsed = parse("var values[2] = 2; var hits = 0;\nbegin:\n"
+                    + "if(2 == 2) { INC hits; }\n"
+                    + "while(2 != 2) { INC hits; HALT; }\n"
+                    + "do { INC hits; } while(2 != 2);\n"
+                    + "if(values[1] != 3) { INC hits; }\n"
+                    + "while(values[1] == 2) { INC values[1]; INC hits; }\n"
+                    + "do { DEC values[1]; INC hits; } while(values[1] != 2);\nHALT;\n");
+            Machine machine = new Machine();
+            machine.load(parsed.bytecode());
+            machine.step(10000);
+            expect(machine.isHalted(), "literal and indexed loop conditions must terminate");
+            expect(2, machine.get(1), "unreferenced array element remains unchanged");
+            expect(2, machine.get(2), "indexed operand is changed only by loop bodies");
+            expect(5, machine.get(3), "all selected bodies execute with the requested branch polarity");
+            expectCoverage(parsed);
+        });
+
         check("metadata is immutable and is published only after successful parsing", () -> {
             CompilerParser parser = new CompilerParser(new StringReader("begin: HALT;"));
             expect(-1, parser.getCodeStart(), "unparsed code start is unavailable");

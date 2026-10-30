@@ -189,7 +189,7 @@ List<Number> Program( boolean preflight ) : {
     <BEGIN> {
         codeSegment.placeLabel("begin");
     }
-    StatementsOrBlocks() 
+    Statements()
     <EOF> {
         if( !preflight ) {
             codeSegment.validateLabels();
@@ -209,9 +209,7 @@ void MacroDefinition() : {
         inMacroDefinition = true;
     }
     try {
-        MacroSignature() "{"
-            StatementsOrBlocks()
-        "}"
+        MacroSignature() Block()
     } finally {
         inMacroDefinition = false;
         macroVariables.clear();
@@ -243,16 +241,31 @@ void GlobalVariableDeclaration() : {
 }
 
 
-void StatementsOrBlocks() : {
-} {    
-    ( StatementOrBlock() )*
-}
-
-void StatementOrBlock() : {
+void Statements() : {
 } {
-    LOOKAHEAD(2) UnlabeledStatementOrBlock() | ( LOOKAHEAD(2) LabelDeclaration() )+ UnlabeledStatementOrBlock()
+    ( Statement() )*
 }
 
+void Statement() : {
+    int previousLine;
+} {
+    // Labels and macro calls both start with an identifier.
+    ( LOOKAHEAD(2) LabelDeclaration() )*
+    {
+        // The statement after its labels owns the emitted instructions.
+        previousLine = codeSegment.getSourceLine();
+        codeSegment.setSourceLine(getToken(1).beginLine);
+    }
+    try {
+        ( Block()
+        | DoWhileBlock()
+        | WhileBlock()
+        | IfElseBlock()
+        | SimpleStatement() )
+    } finally {
+        codeSegment.setSourceLine(previousLine);
+    }
+}
 
 void LabelDeclaration() : {
     Token label;
@@ -262,27 +275,9 @@ void LabelDeclaration() : {
     }
 }
 
-void UnlabeledStatementOrBlock() : {
-    int previousLine;
-} {
-    {
-        previousLine = codeSegment.getSourceLine();
-        codeSegment.setSourceLine(getToken(1).beginLine);
-    }
-    try {
-        ( Block()
-        | DoWhileBlock()
-        | WhileBlock()
-        | IfElseBlock()
-        | Statement() )
-    } finally {
-        codeSegment.setSourceLine(previousLine);
-    }
-}
-
 void Block() : {
 } {
-    "{" StatementsOrBlocks() "}"
+    "{" Statements() "}"
 }
 
 void DoWhileBlock() : {
@@ -290,11 +285,9 @@ void DoWhileBlock() : {
     Number target = codeSegment.newLabel();
     Token whileToken;
 } {
-    <DO> "{"
-        StatementsOrBlocks()
-    "}" whileToken = <WHILE> {
+    <DO> Block() whileToken = <WHILE> {
         codeSegment.setSourceLine(whileToken.beginLine);
-    } "(" condition = DoWhileCondition() ")" <EOS> {
+    } "(" condition = Condition(true) ")" <EOS> {
         codeSegment.addJNZ(condition, target);
     }
 }
@@ -304,9 +297,9 @@ void WhileBlock() : {
     Number begin = codeSegment.newLabel();
     Number end = codeSegment.newLabel();
 } {
-    <WHILE> "(" condition=IfCondition() ")" { codeSegment.addJNZ(condition, end); } "{"
-        StatementsOrBlocks()
-    "}" {
+    <WHILE> "(" condition = Condition(false) ")" {
+        codeSegment.addJNZ(condition, end);
+    } Block() {
         codeSegment.addJNZ(new Number(0), begin);
         codeSegment.placeLabel(end);
     }
@@ -318,15 +311,13 @@ void IfElseBlock() : {
     Number endLabel = codeSegment.newLabel();
     boolean hasElse = false;
 } {
-    <IF> "(" condition=IfCondition() ")" { codeSegment.addJNZ(condition, elseLabel); } "{"
-        StatementsOrBlocks()
-    "}" ( <ELSE> {
+    <IF> "(" condition = Condition(false) ")" {
+        codeSegment.addJNZ(condition, elseLabel);
+    } Block() ( <ELSE> {
         codeSegment.addJNZ(new Number(0), endLabel);
         codeSegment.placeLabel(elseLabel);
         hasElse = true;
-    } "{"
-        StatementsOrBlocks()
-    "}" )? {
+    } Block() )? {
         codeSegment.placeLabel(endLabel);
     }
     {
@@ -337,18 +328,16 @@ void IfElseBlock() : {
 
 }
 
-void Statement() : {
+void SimpleStatement() : {
 } {
       ( LocalVariableDeclaration() | Command() | Macro() )? <EOS>
 }
 
 void MacroSignature() : {
     Token name;
-    Token id;
 }{
     name = <IDENTIFIER> "(" (
-        (<NUMBER> | id = <IDENTIFIER> { macroVariables.add(id.image); } )
-        ("," (<NUMBER> | id = <IDENTIFIER> { macroVariables.add(id.image); } ) )*
+        MacroParameter() ( "," MacroParameter() )*
     )? ")" {
         if( !preflight ) {
             throw new ParseException( "Macro substitution failed!\n" + getImage(name));
@@ -356,22 +345,33 @@ void MacroSignature() : {
     }
 }
 
+void MacroParameter() : {
+    Token id;
+} {
+      <NUMBER>
+    | id = <IDENTIFIER> { macroVariables.add(id.image); }
+}
+
 void Macro() : {
     Token name;
-    Token id;
 }{
     name = <IDENTIFIER> "(" (
-        (<NUMBER> | id = <IDENTIFIER> {
-            resolveVariable(id, 0);
-        } ( "[" <NUMBER> "]" )? )
-        ("," (<NUMBER> | id = <IDENTIFIER> {
-            resolveVariable(id, 0);
-        } ( "[" <NUMBER> "]" )? ) )*
+        MacroArgument() ( "," MacroArgument() )*
     )? ")" {
         if( !preflight ) {
             throw new ParseException( "Macro substitution failed!\n" + getImage(name));
         }
     }
+}
+
+void MacroArgument() : {
+    Token id;
+} {
+      <NUMBER>
+    | id = <IDENTIFIER> {
+        // Expansion preserves literal/index text; preflight only resolves the base name.
+        resolveVariable(id, 0);
+    } ( "[" <NUMBER> "]" )?
 }
 
 void LocalVariableDeclaration() : {
@@ -437,45 +437,27 @@ void Command() : {
     | Jnz()
 }
 
-Number DoWhileCondition() : {
+// if/while branch when the source condition is false; do/while branches when true.
+Number Condition(boolean branchOnTrue) : {
     Number address;
-    Token number;
+    Token operator, number;
 } {
-    address = Lhs() (
-        <NEQ> number = <NUMBER> {
-            return emitComparison(address, Integer.parseInt(number.image), false);
-        }
-        | <EQ> number = <NUMBER> {
-            return emitComparison(address, Integer.parseInt(number.image), true);
-        }
-    )
-}
-
-Number Lhs() : {
-    Token lhs, index;
-    int offset = 0;
-} {
-      lhs = <IDENTIFIER> ( "[" index = <NUMBER> "]" { offset = Integer.parseInt(index.image); } )? {
-        return resolveVariable(lhs, offset);
-      }
-    | lhs = <NUMBER> {
-        return dataSegment.newVariable(Integer.parseInt(lhs.image));
+    address = Lhs() ( operator = <NEQ> | operator = <EQ> ) number = <NUMBER> {
+        boolean trueWhenEqual = (operator.kind == EQ) == branchOnTrue;
+        return emitComparison(address, Integer.parseInt(number.image), trueWhenEqual);
     }
 }
 
-Number IfCondition() : {
+Number Lhs() : {
     Number address;
-    Token number;
+    Token literal;
 } {
-      address = Lhs() (
-          <NEQ> number = <NUMBER> {
-            // if/while branch past the body when the source condition is false.
-            return emitComparison(address, Integer.parseInt(number.image), true);
-        }
-        | <EQ> number = <NUMBER> {
-            return emitComparison(address, Integer.parseInt(number.image), false);
-        }
-    )
+      address = Variable() {
+        return address;
+      }
+    | literal = <NUMBER> {
+        return dataSegment.newVariable(Integer.parseInt(literal.image));
+      }
 }
 
 
