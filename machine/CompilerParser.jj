@@ -319,8 +319,10 @@ void MacroSignature() : {
     Token name;
     Token id;
 }{
-    name = <IDENTIFIER> "(" (<NUMBER> | id = <IDENTIFIER> { macroVariables.add(id.image); } )?
-            ("," (<NUMBER> | id = <IDENTIFIER> { macroVariables.add(id.image); } ) )* ")" {
+    name = <IDENTIFIER> "(" (
+        (<NUMBER> | id = <IDENTIFIER> { macroVariables.add(id.image); } )
+        ("," (<NUMBER> | id = <IDENTIFIER> { macroVariables.add(id.image); } ) )*
+    )? ")" {
         if( !preflight ) {
             throw new ParseException( "Macro substitution failed!\n" + getImage(name));
         }
@@ -331,15 +333,17 @@ void Macro() : {
     Token name;
     Token id;
 }{
-    name = <IDENTIFIER> "(" (<NUMBER> | id = <IDENTIFIER> {
+    name = <IDENTIFIER> "(" (
+        (<NUMBER> | id = <IDENTIFIER> {
             resolveVariable(id, 0);
-        } ( "[" <NUMBER> "]" )? )?
-            ("," (<NUMBER> | id = <IDENTIFIER> {
+        } ( "[" <NUMBER> "]" )? )
+        ("," (<NUMBER> | id = <IDENTIFIER> {
             resolveVariable(id, 0);
-        } ( "[" <NUMBER> "]" )? ) )* ")" {
-            if( !preflight ) {
-                throw new ParseException( "Macro substitution failed!\n" + getImage(name));
-            }
+        } ( "[" <NUMBER> "]" )? ) )*
+    )? ")" {
+        if( !preflight ) {
+            throw new ParseException( "Macro substitution failed!\n" + getImage(name));
+        }
     }
 }
 
