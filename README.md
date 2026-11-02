@@ -5,6 +5,11 @@ small random-access machine. It includes a compiler for variables, arrays,
 conditions, loops, and macros; a Java execution model; and a JavaFX source editor,
 memory viewer, and debugger.
 
+The standalone **Language Game** adds 46 programming puzzles. Start with five
+machine instructions, earn the full language, and build arithmetic, gcd, and
+fixed-width two's-complement operations. Every grammar unlock is practiced in
+the very next level.
+
 **BlueJ is the recommended way to run the GUI.** The documentation also explains
 the source language, the machine model, and a command-line development workflow.
 All repository file links and build inputs refer to tracked project files;
@@ -12,6 +17,7 @@ examples are included directly in the documentation.
 
 - [Run the GUI with BlueJ](#run-the-gui-with-bluej)
 - [Use the simulator](#use-the-simulator)
+- [Play the Language Game](#play-the-language-game)
 - [Language](docs/language.md)
 - [Context-free grammar](docs/grammar.md)
 - [Machine model](docs/machine-model.md)
@@ -43,6 +49,27 @@ JavaFX configuration. If Java source features are rejected, check the Java versi
 used by BlueJ. A graphical desktop and compatible JavaFX native libraries are
 required to display the window.
 
+### Class map and external changes
+
+The `machine` class map groups the game, machine/compiler, source editor, and
+parser classes in separate columns. Uses arrows are hidden by default to keep
+the map readable; inheritance arrows remain visible.
+
+For changes to existing Java sources, enable **Tools → Preferences → Editor →
+Check file changes on the disk**, then refocus the source editor. BlueJ reloads
+an unchanged buffer or asks before replacing unsaved edits
+([BlueJ 5.2.1 source](https://github.com/k-pet-group/BlueJ-Greenfoot/blob/BLUEJ-RELEASE-5.2.1/bluej/src/main/java/bluej/editor/flow/FlowEditor.java#L1005-L1037)).
+**Tools → Rebuild Package** forces recompilation. For a project refresh, close
+and reopen the project; BlueJ also
+discovers externally added classes when opening it, as described in its
+[tutorial](https://www.bluej.org/tutorial/tutorial-v4.pdf).
+
+When changing [the diagram layout](machine/package.bluej) externally, **close the
+project first**, then apply the change and reopen it. Closing BlueJ saves its
+current diagram and can overwrite a layout edited while the project was open;
+Rebuild Package does not reload the diagram layout. This behavior is visible in
+[BlueJ's project-window implementation](https://github.com/k-pet-group/BlueJ-Greenfoot/blob/BLUEJ-RELEASE-5.2.1/bluej/src/main/java/bluej/pkgmgr/PkgMgrFrame.java).
+
 ### First program
 
 Click **New** in the source toolbar, enter this complete program, then click
@@ -65,6 +92,43 @@ Click **Step** to execute individual machine instructions, or **Run** to finish.
 The loop transfers three units from `left` into `right`: address `1` ends at `0`
 and address `2` ends at `7`. Use **Compile** to restore the initial program state.
 A source statement can compile to several machine instructions.
+
+The simulator always uses the final **Structured** grammar, including
+`do { ... } while (...);` loops. The word `do` is reserved and cannot be a label
+or other identifier. The Language Game selects earlier grammar versions where
+needed for its teaching exercises; see [language versions](docs/language.md#language-versions).
+
+## Play the Language Game
+
+In BlueJ's `machine` package, compile and right-click
+[LanguageGame](machine/LanguageGame.java), then choose **Run as JavaFX
+application**. It has its own `main` method and runs independently of the
+simulator.
+
+Solve short puzzles to unlock syntax and reusable helpers across six worlds.
+The game provides an editable starter, three hints per level, a growing grammar,
+test feedback, and automatically saved drafts and progress. See the
+[game guide and level progression](docs/language-game.md).
+The heading gives a short objective; **Task details**, beside **Earned toolbox**,
+keeps the complete instructions, explanation, and test contract.
+In **Machine foundations**, an editable flowchart appears beside the code.
+Commands, decisions, and jump arrows show how execution moves through your
+program. Its toolbox has just a rectangle and a diamond; arrow destinations
+determine looping or branching. Editing either view updates the same saved draft. Focusing a flowchart
+element highlights its source lines; moving the source cursor highlights the
+matching element.
+Once `do/while`, `if/else`, and `while` are unlocked, enter **Structured
+programming**: explicit `JNZ` is suspended, and the flowchart is replaced by an
+editable Nassi–Shneiderman diagram. Code and diagram continue to update each
+other. The first challenge in this world rewrites
+the working `if` plus `do/while` loop using the newly earned `while` syntax.
+Earlier worlds remain available for replay.
+Choose **English** or **Deutsch** under **Task language**. The initial choice
+follows the system language; the game remembers your selection. Task text,
+hints, and status messages are translated, while control labels, grammar, and code stay in English.
+
+For testing outside BlueJ, build and share a Linux JAR with JavaFX included.
+See [Linux distribution instructions](docs/linux-testing.md).
 
 ## Use the simulator
 
@@ -92,6 +156,8 @@ tooltip. A `*` marks unsaved changes. **Save source** saves that tab;
 **Save** in the main toolbar saves machine memory.
 
 **New** adds a blank **Untitled** tab; further new tabs receive numbered names.
+For this academic year, the save dialog suggests the `.a26` source extension.
+Existing `.ad04` files still open and keep their names when saved.
 No file is created until **Save source** succeeds. Canceling the filename dialog
 keeps the tab and its contents. A blank draft is not a main file. When no main is
 active, adding a top-level `begin:` marker activates that draft and enables
@@ -113,6 +179,31 @@ before opening or activating another main.
 Source tabs highlight keywords, machine instructions, numbers, quoted paths,
 comments, labels, and macro names as you type. Highlighting also works while
 statements are incomplete; compilation still checks whether the program is valid.
+Press **Enter** to start a new line with the current line's indentation, retaining
+its spaces and tabs. One undo removes the newline and copied indentation together.
+
+Choose **Flowchart** or **Nassi–Shneiderman** in the source diagram selector to
+edit the selected file beside its diagram. **Source only** hides the diagram.
+Changing either side updates the other, and source undo also reverses diagram
+edits. Each file retains its diagram's pending edits when you switch tabs or
+display modes. Imported helper files show their own macro bodies; the active main
+and its current machine state stay unchanged when you browse them.
+
+Click or tab into a diagram element to highlight its source without moving the
+source caret. Moving the source caret highlights the matching diagram element.
+Invalid code keeps the last valid diagram marked and read-only until corrected.
+Flowcharts support explicit jumps; Nassi–Shneiderman diagrams require structured
+control flow. Both use the simulator's final grammar. Diagram editing changes
+source buffers; **Compile** and **Save source** remain separate actions.
+
+Drag a toolbox shape into an insertion area to add a diagram element. To change
+a jump destination, grab its arrowhead and drag it onto another incoming
+junction. The arrowhead's surrounding area also accepts the grab; it highlights
+on hover. Dragging moves the destination label; every jump using that label
+follows it. Other labels at either location stay in place. If arrows share a
+junction, select the desired decision first. Moving `begin` also moves program
+startup. Junction dots sit halfway along the incoming connector between blocks.
+Use the pencil button beneath a diamond to edit its full JNZ instruction.
 
 **Compile** uses the current editor contents without saving them. New imports
 open when compilation reaches them, using the compiler's existing paths relative
@@ -136,6 +227,19 @@ After compilation, a green background marks the statement for the instruction at
 **Stop** update this marker together with memory. At an explicit `HALT`, the
 statement turns amber and the status reads **Halted**. Several machine instructions
 may belong to one statement, so a step does not always move the marker.
+
+The flowchart marks the next command and the last transition actually taken.
+Immediately after compilation, it highlights `begin` and its outgoing edge.
+**Step n** and **Run** retain the final transition of the executed batch, including
+the branch into `HALT`. Current variable values appear as `x = 3` in the collapsed
+declaration summary and as `// now: 3` beside expanded declarations, in the
+flowchart only. These are display annotations: they do not
+change source text, saved files, selections, or undo history.
+
+Editing a data cell updates its displayed value while preserving the last real
+transition. Changing `i` manually clears that transition and marks the new next
+command. Recompiling starts a fresh execution display; source edits, changed
+instructions, and replacing or resetting memory clear stale execution details.
 
 With **Follow execution** enabled, the editor selects the relevant file tab and
 scrolls to the statement. This preserves the caret, text selection, and undo

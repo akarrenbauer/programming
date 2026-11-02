@@ -5,6 +5,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 import javafx.beans.InvalidationListener;
 import javafx.geometry.Point2D;
@@ -16,6 +17,8 @@ import javafx.scene.control.IndexRange;
 import javafx.scene.control.Skin;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.skin.TextAreaSkin;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.paint.Color;
 import javafx.scene.paint.Paint;
 import javafx.scene.shape.Path;
@@ -24,7 +27,10 @@ import javafx.scene.text.Text;
 
 /** A source editor that retains TextArea's editing behavior and adds token colors. */
 public final class SourceEditor extends TextArea {
+    private static final int TAB_WIDTH = 2;
+    private LanguageVersion languageVersion = LanguageVersion.STRUCTURED;
     private IndexRange executionRange;
+    private IndexRange linkedRange;
     private List<IndexRange> callerRanges = List.of();
     private boolean executionHalted;
     private int pendingReveal = -1;
@@ -34,7 +40,47 @@ public final class SourceEditor extends TextArea {
         getStyleClass().add("source-editor");
         setWrapText(false);
         setStyle("-fx-font-family: monospace; -fx-font-size: 13px;");
-        textProperty().addListener((observable, previous, current) -> clearExecutionHighlights());
+        // Register before the skin's key handler, but after event filters have had
+        // the opportunity to consume application shortcuts or intercepted keys.
+        addEventHandler(KeyEvent.KEY_PRESSED, this::keepIndentation);
+        textProperty().addListener((observable, previous, current) -> {
+            clearExecutionHighlights();
+            clearLinkedRange();
+        });
+    }
+
+    private void keepIndentation(KeyEvent event) {
+        if (event.isConsumed() || event.getCode() != KeyCode.ENTER || event.isShiftDown()
+                || event.isControlDown() || event.isAltDown() || event.isMetaDown()) return;
+        // A directly dispatched key must not fall through to the native skin
+        // while disabled either; physical keyboard input never targets it.
+        if (isDisabled()) { event.consume(); return; }
+        if (!isEditable()) return;
+        String source = getText();
+        if (source == null) return;
+        int insertion = getSelection().getStart();
+        int lineStart = source.lastIndexOf('\n', insertion - 1) + 1;
+        int indentEnd = lineStart;
+        while (indentEnd < insertion && (source.charAt(indentEnd) == ' ' || source.charAt(indentEnd) == '\t')) ++indentEnd;
+        if (indentEnd == lineStart) return;
+        // A single replacement preserves native selection, caret and undo behavior.
+        // Only copy indentation already before the insertion point: the remaining
+        // whitespace stays in the suffix when Enter splits the indentation itself.
+        replaceSelection("\n" + source.substring(lineStart, indentEnd));
+        event.consume();
+    }
+
+    public LanguageVersion getLanguageVersion() {
+        return languageVersion;
+    }
+
+    /** Changes token colors without editing text, selection, undo history or execution markers. */
+    public void setLanguageVersion(LanguageVersion version) {
+        Objects.requireNonNull(version, "version");
+        if (languageVersion == version) return;
+        languageVersion = version;
+        if (getSkin() instanceof SyntaxSkin skin) skin.invalidateHighlighting();
+        else requestLayout();
     }
 
     public IndexRange getExecutionRange() {
@@ -49,12 +95,32 @@ public final class SourceEditor extends TextArea {
         return callerRanges;
     }
 
+    /** The exact linked source range, independent of selection and debugger markers. */
+    public IndexRange getLinkedRange() {
+        return linkedRange;
+    }
+
+    /** Decorates the containing source lines without moving the caret, selection, focus or scroll position. */
+    public void setLinkedRange(int start, int end) {
+        checkRange(start, end);
+        IndexRange range = new IndexRange(start, end);
+        if (range.equals(linkedRange)) return;
+        linkedRange = range;
+        invalidateMarkers();
+    }
+
+    public void clearLinkedRange() {
+        if (linkedRange == null) return;
+        linkedRange = null;
+        invalidateMarkers();
+    }
+
     /** Decorates the next statement without editing the document or selection. */
     public void setExecutionRange(int start, int end, boolean halted) {
         checkRange(start, end);
         executionRange = new IndexRange(start, end);
         executionHalted = halted;
-        invalidateExecutionHighlights();
+        invalidateMarkers();
     }
 
     public void setCallerRanges(List<IndexRange> ranges) {
@@ -62,7 +128,7 @@ public final class SourceEditor extends TextArea {
             checkRange(range.getStart(), range.getEnd());
         }
         callerRanges = List.copyOf(ranges);
-        invalidateExecutionHighlights();
+        invalidateMarkers();
     }
 
     public void clearExecutionHighlights() {
@@ -70,7 +136,7 @@ public final class SourceEditor extends TextArea {
         callerRanges = List.of();
         executionHalted = false;
         pendingReveal = -1;
-        invalidateExecutionHighlights();
+        invalidateMarkers();
     }
 
     /** Scrolls to a source offset, leaving the caret, selection and focus alone. */
@@ -88,7 +154,7 @@ public final class SourceEditor extends TextArea {
         }
     }
 
-    private void invalidateExecutionHighlights() {
+    private void invalidateMarkers() {
         if (getSkin() instanceof SyntaxSkin skin) {
             skin.markersDirty = true;
         }
@@ -104,6 +170,7 @@ public final class SourceEditor extends TextArea {
         private final SourceEditor editor;
         private final Group highlights = new Group();
         private final Group executionHighlights = new Group();
+        private final Group linkedHighlights = new Group();
         private final Map<SourceSyntax.Kind, List<SourceSyntax.Span>> spansByKind =
                 new EnumMap<>(SourceSyntax.Kind.class);
         private Text nativeText;
@@ -131,6 +198,10 @@ public final class SourceEditor extends TextArea {
             executionHighlights.setManaged(false);
             executionHighlights.setMouseTransparent(true);
             executionHighlights.setAutoSizeChildren(false);
+            linkedHighlights.getStyleClass().add("linked-highlights");
+            linkedHighlights.setManaged(false);
+            linkedHighlights.setMouseTransparent(true);
+            linkedHighlights.setAutoSizeChildren(false);
             editor.textProperty().addListener(renderListener);
             editor.fontProperty().addListener(renderListener);
             textFillProperty().addListener(renderListener);
@@ -186,10 +257,15 @@ public final class SourceEditor extends TextArea {
                 return;
             }
 
+            // Keep literal tabs in the document; native caret/selection geometry
+            // and the copied syntax layers use the same two-column tab stops.
+            nativeText.setTabSize(TAB_WIDTH);
             addHighlight(List.of(highlights), 0);
             highlights.toBack();
             addHighlight(List.of(executionHighlights), 0);
             executionHighlights.toBack();
+            addHighlight(List.of(linkedHighlights), 0);
+            linkedHighlights.toBack();
             // Hide only unselected native glyphs. Its selection text, selection
             // background, caret and input-method decorations still render on top.
             nativeText.fillProperty().unbind();
@@ -208,7 +284,7 @@ public final class SourceEditor extends TextArea {
             String source = editor.getText() == null ? "" : editor.getText();
             renderedSource = source;
             spansByKind.clear();
-            for (SourceSyntax.Span span : SourceSyntax.highlight(source)) {
+            for (SourceSyntax.Span span : SourceSyntax.highlight(source, editor.getLanguageVersion())) {
                 spansByKind.computeIfAbsent(span.kind(), kind -> new ArrayList<>()).add(span);
             }
             List<Node> layers = new ArrayList<>();
@@ -273,6 +349,8 @@ public final class SourceEditor extends TextArea {
                 highlights.setLayoutY(origin.getY());
                 executionHighlights.setLayoutX(origin.getX());
                 executionHighlights.setLayoutY(origin.getY());
+                linkedHighlights.setLayoutX(origin.getX());
+                linkedHighlights.setLayoutY(origin.getY());
                 if (markersDirty) {
                     List<Node> markers = new ArrayList<>();
                     for (IndexRange range : editor.callerRanges) {
@@ -283,6 +361,9 @@ public final class SourceEditor extends TextArea {
                                 Color.web(editor.executionHalted ? "#ffe1a3" : "#c8efc0")));
                     }
                     executionHighlights.getChildren().setAll(markers);
+                    if (editor.linkedRange == null) linkedHighlights.getChildren().clear();
+                    else linkedHighlights.getChildren().setAll(marker(linkedLines(editor.linkedRange),
+                            "source-linked", Color.web("#e7dcff")));
                     markersDirty = false;
                 }
                 for (Node node : highlights.getChildren()) {
@@ -321,6 +402,15 @@ public final class SourceEditor extends TextArea {
             return marker;
         }
 
+        /** Half-open ranges ending at the next line start do not include that untouched line. */
+        private IndexRange linkedLines(IndexRange range) {
+            String source = renderedSource;
+            int start = range.getStart(), end = Math.max(start, range.getEnd() - 1);
+            while (start > 0 && source.charAt(start - 1) != '\n' && source.charAt(start - 1) != '\r') --start;
+            while (end < source.length() && source.charAt(end) != '\n' && source.charAt(end) != '\r') ++end;
+            return new IndexRange(start, end);
+        }
+
         @Override
         public void dispose() {
             editor.textProperty().removeListener(renderListener);
@@ -338,6 +428,7 @@ public final class SourceEditor extends TextArea {
                 nativeText.fillProperty().bind(textFillProperty());
                 removeHighlight(List.of(highlights));
                 removeHighlight(List.of(executionHighlights));
+                removeHighlight(List.of(linkedHighlights));
             }
             super.dispose();
         }

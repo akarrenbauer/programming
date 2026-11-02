@@ -2,7 +2,7 @@
 
 [README](../README.md) · [Language reference](language.md) · [Machine model](machine-model.md)
 
-This grammar describes structured programs after imports and comments have been
+This grammar describes the default **Structured** language version after imports and comments have been
 processed. It follows the language accepted by
 [CompilerParser.jj](../machine/CompilerParser.jj). Internal labels and jumps are
 listed separately at the end.
@@ -18,6 +18,10 @@ The notation follows the [Java Language Specification](https://docs.oracle.com/j
 | [ *X* ] | *X* is optional. |
 | { *X* } | *X* may occur zero or more times. |
 | Separate lines under a name | Alternatives: choose one. |
+
+The game displays terminals with a light-gray background and highlights newly
+unlocked grammar fragments. Its tab shows **New** until those additions have
+been opened. See the [game guide](language-game.md).
 
 Brackets and braces in fixed-width text, such as `[` and `{`, are literal source
 characters. For example, the *Variable* rule allows both `count` and `cells[2]`.
@@ -137,11 +141,29 @@ compiler and library macro implementations; student programs use structured
 control flow. To describe internal code, add these alternatives:
 
 *Statement*:<br>
-&emsp;*Identifier* `:` *Statement*
+&emsp;*LabelName* `:` *Statement*
+
+*LabelName*:<br>
+&emsp;*Identifier*
 
 *Command*:<br>
-&emsp;`JNZ` *Variable* *Identifier*
+&emsp;`JNZ` *Variable* *LabelName*
 
-The final identifier in `JNZ` names a label. The recursive *Statement* rule allows
+The final name in `JNZ` identifies a label. The recursive *Statement* rule allows
 several labels before one statement, but a label must be followed by a statement.
-Labels are not macro arguments.
+Labels are not macro arguments. Reserved keywords cannot name labels.
+
+## Earlier language version
+
+The compiler also provides **Before do/while** for the game's construction
+exercises. In that version, `do` is an ordinary *Identifier* and can name a label,
+variable, macro, or parameter. The `do` *Block* `while` alternative is unavailable.
+All other compiler rules remain the same; the game separately restricts syntax
+to earned features. Thus *LabelName* remains just *Identifier* in both versions,
+without a keyword exception.
+
+In the rewrite exercise, the old `do:` label belongs to the earlier version and
+the replacement `do { ... } while (...);` belongs to Structured. A single source
+and its imports use one version throughout. See [the game guide](language-game.md)
+for automatic selection and [the language reference](language.md#language-versions)
+for choosing a version in the simulator.

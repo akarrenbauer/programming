@@ -149,6 +149,59 @@ public final class MachineGUISourceMappingTest {
                 expect(main.isExecutionHalted(), "browsing another source preserves the current halted marker");
             });
 
+            checkFx("the simulator compiles and highlights only the final structured grammar", () -> {
+                expect(stage.getScene().lookup("#language-version") == null,
+                        "the simulator must not offer an earlier language profile");
+                open("var x=2; begin: do { DEC x; } while(x!=0); HALT;");
+                SourceEditor source = editor(mainPath);
+                expect(source.getLanguageVersion() == LanguageVersion.STRUCTURED,
+                        "opened source uses the final grammar for highlighting");
+                expectRange(source, "DEC x;");
+                button("Step").fire();
+                expect(machine.get(1) == 1, "opening a structured loop compiles it for execution");
+                List<Integer> memoryBefore = memory();
+                int stepsBefore = machine.getStepCounter();
+                String legacySource = "var x=2; begin: do: DEC x; JNZ x do; HALT;";
+                source.setText(legacySource);
+                try (DialogResponse response = new DialogResponse("OK")) {
+                    node("compile", Button.class).fire();
+                    expect(response.count == 1, "do is reserved and cannot be compiled as an old label");
+                }
+                expectNoHighlights();
+                expect(memory().equals(memoryBefore) && machine.getStepCounter() == stepsBefore,
+                        "rejected legacy syntax preserves the running image");
+                expect(source.getText().equals(legacySource) && source.getLanguageVersion() == LanguageVersion.STRUCTURED,
+                        "rejection preserves the editable source and final grammar highlighting");
+                source.setText("var x=2; begin: do { DEC x; } while(x!=0); HALT;");
+                node("compile", Button.class).fire();
+                expectRange(source, "DEC x;");
+                button("Step").fire();
+                expect(machine.get(1) == 1, "Compile accepts the rewritten structured loop");
+            });
+
+            checkFx("imported source also compiles exclusively with the final grammar", () -> {
+                open(nestedProgram());
+                SourceEditor library = editor(libraryPath);
+                expect(library.getLanguageVersion() == LanguageVersion.STRUCTURED,
+                        "imported source uses final grammar highlighting");
+                String original = library.getText();
+                List<Integer> before = memory();
+                try {
+                    library.setText("void leaf(value) { do: INC value; }\n"
+                            + "void outer(value) { leaf(value); }\n");
+                    try (DialogResponse response = new DialogResponse("OK")) {
+                        node("compile", Button.class).fire();
+                        expect(response.count == 1, "the final grammar rejects a reserved label in an imported macro");
+                    }
+                    expect(before.equals(memory()), "an invalid import preserves the previous machine image");
+                    expectNoHighlights();
+                } finally {
+                    library.setText(original);
+                }
+                node("compile", Button.class).fire();
+                expectRange(editor(mainPath), "NOP;");
+            });
+
             check("nested imported macros show body and ordered caller locations", () -> {
                 onFx(() -> {
                     open(nestedProgram());

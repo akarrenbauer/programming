@@ -1,0 +1,2 @@
+# Preserve the whitespace in this verbatim upstream license notice.
+third-party/javafx/**/ADDITIONAL_LICENSE_INFO -whitespace

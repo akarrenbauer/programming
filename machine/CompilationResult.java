@@ -8,10 +8,21 @@ import java.util.Map;
 
 /** Immutable bytecode, opcode-start provenance, and the source snapshots used to compile it. */
 public record CompilationResult(List<Integer> bytecode, Map<Integer, SourceTrace> sourceMap,
-        int codeStart, Map<Path, String> sources) {
+        int codeStart, Map<Path, String> sources, Map<Integer, String> controlRoles, List<Variable> variables) {
+    /** The exact allocated cells of a source declaration; macro invocations retain their caller chain. */
+    public record Variable(SourceTrace source, String name, int address, int length) { }
+
+    /** Compatibility for callers which only have instruction provenance. */
+    public CompilationResult(List<Integer> bytecode, Map<Integer, SourceTrace> sourceMap,
+            int codeStart, Map<Path, String> sources) {
+        this(bytecode, sourceMap, codeStart, sources, Map.of(), List.of());
+    }
+
     public CompilationResult {
         bytecode = List.copyOf(bytecode);
         sourceMap = Collections.unmodifiableMap(new LinkedHashMap<>(sourceMap));
         sources = Collections.unmodifiableMap(new LinkedHashMap<>(sources));
+        controlRoles = Collections.unmodifiableMap(new LinkedHashMap<>(controlRoles));
+        variables = List.copyOf(variables);
     }
 }

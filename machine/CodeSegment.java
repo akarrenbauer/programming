@@ -16,6 +16,7 @@ public class CodeSegment extends Segment
 {
     private final Set<String> unresolvedLabels = new LinkedHashSet<>();
     private final Map<Integer, Integer> instructionSourceLines = new LinkedHashMap<>();
+    private final Map<Integer, String> controlRoles = new LinkedHashMap<>();
     private int sourceLine;
 
     int getSourceLine() {
@@ -30,6 +31,18 @@ public class CodeSegment extends Segment
         Map<Integer, Integer> absoluteLines = new LinkedHashMap<>();
         instructionSourceLines.forEach((address, line) -> absoluteLines.put(address + offset, line));
         return Collections.unmodifiableMap(absoluteLines);
+    }
+
+    Map<Integer, String> getControlRoles(int offset) {
+        Map<Integer, String> result = new LinkedHashMap<>();
+        controlRoles.forEach((address, role) -> result.put(address + offset, role));
+        return Collections.unmodifiableMap(result);
+    }
+
+    /** Distinguishes source decisions from the private jumps used to calculate comparisons. */
+    public void addControlJNZ(Number test, Number target, String role) {
+        controlRoles.put(size(), role);
+        addJNZ(test, target);
     }
 
     private void addInstruction(Number opcode) {

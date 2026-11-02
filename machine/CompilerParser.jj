@@ -1,5 +1,6 @@
 options {
     STATIC = false;
+    COMMON_TOKEN_ACTION = true;
 }
 
 PARSER_BEGIN(CompilerParser)
@@ -24,6 +25,30 @@ public class CompilerParser {
     private DataSegment dataSegment = new DataSegment();
     private Map<Integer, Integer> instructionSourceLines = Collections.emptyMap();
     private int codeStart = -1;
+    private final List<VariableDeclaration> variableDeclarations = new ArrayList<>();
+
+    public static final class VariableDeclaration {
+        public final int line, address, length;
+        public final String name;
+        VariableDeclaration(Token token, Number address, int length) {
+            this.line = token.beginLine;
+            this.name = token.image;
+            this.address = address.getValue();
+            this.length = length;
+        }
+    }
+
+    public List<VariableDeclaration> getVariableDeclarations() {
+        return Collections.unmodifiableList(variableDeclarations);
+    }
+
+    public Map<Integer, String> getControlRoles() {
+        return codeSegment.getControlRoles(codeStart);
+    }
+
+    private void recordVariable(Token id, Number address, int length) {
+        if (!preflight) variableDeclarations.add(new VariableDeclaration(id, address, length));
+    }
 
     private List<String> macroVariables = new ArrayList<>();
     private final List<Token> deferredGlobalReferences = new ArrayList<>();
@@ -36,6 +61,15 @@ public class CompilerParser {
     /** First code address, or -1 until a program has parsed successfully. */
     public int getCodeStart() {
         return codeStart;
+    }
+
+    /** Select a profile on a fresh parser, before reading or looking ahead at any token. */
+    public void setLanguageVersion(LanguageVersion version) {
+        token_source.setLanguageVersion(version);
+    }
+
+    public LanguageVersion getLanguageVersion() {
+        return token_source.getLanguageVersion();
     }
 
     public static void main(String[] args) throws ParseException {
@@ -142,6 +176,30 @@ public class CompilerParser {
 
 PARSER_END(CompilerParser)
 
+TOKEN_MGR_DECLS : {
+    private LanguageVersion languageVersion = LanguageVersion.STRUCTURED;
+    private boolean tokenizationStarted;
+
+    public void setLanguageVersion(LanguageVersion version) {
+        java.util.Objects.requireNonNull(version, "language version");
+        if (tokenizationStarted) {
+            throw new IllegalStateException("Select the language version before tokenization; use a fresh parser.");
+        }
+        languageVersion = version;
+    }
+
+    public LanguageVersion getLanguageVersion() {
+        return languageVersion;
+    }
+
+    void CommonTokenAction(Token token) {
+        tokenizationStarted = true;
+        if (languageVersion == LanguageVersion.BEFORE_DO_WHILE && token.kind == DO) {
+            token.kind = IDENTIFIER;
+        }
+    }
+}
+
 SKIP :
 {
   " "
@@ -224,6 +282,7 @@ void GlobalVariableDeclaration() : {
     <VAR> id = <IDENTIFIER> ( "[" size = <NUMBER> "]" { length = Integer.parseInt(size.image); } )? <ASSIGN> (
           rvalue = <NUMBER> {
             Number variable = dataSegment.newVariable(id.image, length, rvalue.image);
+            recordVariable(id, variable, length);
         }
         | rvalue = <IDENTIFIER> ( "[" index = <NUMBER> "]" { offset = Integer.parseInt(index.image); } )? {
             Number right  = dataSegment.getVariable(rvalue.image, offset);
@@ -236,6 +295,7 @@ void GlobalVariableDeclaration() : {
             }
             int initialValue = dataSegment.get(sourceAddress).getValue();
             Number variable = dataSegment.newVariable(id.image, length, initialValue);
+            recordVariable(id, variable, length);
         }
     )
 }
@@ -270,8 +330,16 @@ void Statement() : {
 void LabelDeclaration() : {
     Token label;
 } {
-    label = <IDENTIFIER> <COLON> {
+    label = LabelName() <COLON> {
         codeSegment.placeLabel(label.image);
+    }
+}
+
+Token LabelName() : {
+    Token label;
+} {
+    label = <IDENTIFIER> {
+        return label;
     }
 }
 
@@ -288,7 +356,7 @@ void DoWhileBlock() : {
     <DO> Block() whileToken = <WHILE> {
         codeSegment.setSourceLine(whileToken.beginLine);
     } "(" condition = Condition(true) ")" <EOS> {
-        codeSegment.addJNZ(condition, target);
+        codeSegment.addControlJNZ(condition, target, "branch-true");
     }
 }
 
@@ -298,9 +366,9 @@ void WhileBlock() : {
     Number end = codeSegment.newLabel();
 } {
     <WHILE> "(" condition = Condition(false) ")" {
-        codeSegment.addJNZ(condition, end);
+        codeSegment.addControlJNZ(condition, end, "branch-false");
     } Block() {
-        codeSegment.addJNZ(new Number(0), begin);
+        codeSegment.addControlJNZ(new Number(0), begin, "while-back");
         codeSegment.placeLabel(end);
     }
 }
@@ -312,9 +380,9 @@ void IfElseBlock() : {
     boolean hasElse = false;
 } {
     <IF> "(" condition = Condition(false) ")" {
-        codeSegment.addJNZ(condition, elseLabel);
+        codeSegment.addControlJNZ(condition, elseLabel, "branch-false");
     } Block() ( <ELSE> {
-        codeSegment.addJNZ(new Number(0), endLabel);
+        codeSegment.addControlJNZ(new Number(0), endLabel, "if-exit");
         codeSegment.placeLabel(elseLabel);
         hasElse = true;
     } Block() )? {
@@ -383,6 +451,7 @@ void LocalVariableDeclaration() : {
           rvalue = <NUMBER> {
             if( !preflight ) {
                 Number base = dataSegment.newVariable(id.image, length, rvalue.image);
+                recordVariable(id, base, length);
                 int value = Integer.parseInt(rvalue.image);
                 for( int j = 0; j < length; ++j ) {
                     Number variable = base.offset(j);
@@ -396,6 +465,7 @@ void LocalVariableDeclaration() : {
         | rvalue = <IDENTIFIER> ( "[" index = <NUMBER> "]" { offset = Integer.parseInt(index.image); } )? {
             if( !preflight ) {
                 Number left   = dataSegment.newVariable(id.image, length, 0);
+                recordVariable(id, left, length);
                 Number middle = dataSegment.newVariable(0);
                 Number right  = dataSegment.getVariable(rvalue.image, offset);
                 if( right == null ) {
@@ -496,8 +566,8 @@ void Jnz() : {
     Number arg1;
     Token arg2;
 } {
-    <JNZ> arg1 = Variable() arg2 = <IDENTIFIER> {
+    <JNZ> arg1 = Variable() arg2 = LabelName() {
         Number target = codeSegment.getLabel(arg2.image);
-        codeSegment.addJNZ(arg1, target);
+        codeSegment.addControlJNZ(arg1, target, "branch-true");
     }
 }

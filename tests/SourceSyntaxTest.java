@@ -2,6 +2,7 @@ import java.util.List;
 import java.util.Random;
 
 import machine.SourceSyntax;
+import machine.LanguageVersion;
 import machine.SourceSyntax.Kind;
 import machine.SourceSyntax.Span;
 
@@ -87,6 +88,39 @@ public class SourceSyntaxTest {
             }
             for (String word : List.of("HALT", "NOP", "INC", "DEC", "JNZ")) {
                 expectToken(word, verified(word), word, Kind.INSTRUCTION);
+            }
+        });
+
+        check("do identifiers follow the selected language version in every role", () -> {
+            for (String source : List.of("do", "var do=0;", "INC do;", "void macro(do) {}", "JNZ value do;")) {
+                expectToken(source, verified(source, LanguageVersion.BEFORE_DO_WHILE), "do", Kind.PLAIN);
+                expectToken(source, verified(source, LanguageVersion.STRUCTURED), "do", Kind.KEYWORD);
+            }
+            for (String source : List.of("do:", "do \t:", "do\r\n:")) {
+                expectToken(source, verified(source, LanguageVersion.BEFORE_DO_WHILE), "do", Kind.LABEL);
+                expectToken(source, verified(source, LanguageVersion.STRUCTURED), "do", Kind.KEYWORD);
+            }
+            for (String source : List.of("do(value);", "do \n (value);", "void do(value) {}")) {
+                expectToken(source, verified(source, LanguageVersion.BEFORE_DO_WHILE), "do", Kind.MACRO);
+                expectToken(source, verified(source, LanguageVersion.STRUCTURED), "do", Kind.KEYWORD);
+            }
+            String structured = "do { DEC value; } while(value != 0);";
+            expectToken(structured, verified(structured, LanguageVersion.BEFORE_DO_WHILE), "do", Kind.PLAIN);
+            expectToken(structured, verified(structured, LanguageVersion.STRUCTURED), "do", Kind.KEYWORD);
+            expect(SourceSyntax.highlight(structured, LanguageVersion.STRUCTURED), SourceSyntax.highlight(structured),
+                    "the existing API defaults to structured syntax");
+        });
+
+        check("language profiles preserve protected text and whole identifier boundaries", () -> {
+            for (LanguageVersion version : LanguageVersion.values()) {
+                String source = "// do: do(value) var do\r\nimport \"do://do\";\n"
+                        + "doing do2 _do Do\n";
+                List<Span> spans = verified(source, version);
+                expectToken(source, spans, "// do: do(value) var do", Kind.COMMENT);
+                expectToken(source, spans, "\"do://do\"", Kind.STRING);
+                for (String name : List.of("doing", "do2", "_do", "Do")) expectToken(source, spans, name, Kind.PLAIN);
+                expectToken("do2:", verified("do2:", version), "do2", Kind.LABEL);
+                expectToken("doWork();", verified("doWork();", version), "doWork", Kind.MACRO);
             }
         });
 
@@ -202,7 +236,11 @@ public class SourceSyntaxTest {
     }
 
     private static List<Span> verified(String source) {
-        List<Span> spans = SourceSyntax.highlight(source);
+        return verified(source, LanguageVersion.STRUCTURED);
+    }
+
+    private static List<Span> verified(String source, LanguageVersion version) {
+        List<Span> spans = SourceSyntax.highlight(source, version);
         int position = 0;
         StringBuilder reconstructed = new StringBuilder();
         for (Span span : spans) {

@@ -20,6 +20,30 @@ public class CompilerParser implements CompilerParserConstants {
     private DataSegment dataSegment = new DataSegment();
     private Map<Integer, Integer> instructionSourceLines = Collections.emptyMap();
     private int codeStart = -1;
+    private final List<VariableDeclaration> variableDeclarations = new ArrayList<>();
+
+    public static final class VariableDeclaration {
+        public final int line, address, length;
+        public final String name;
+        VariableDeclaration(Token token, Number address, int length) {
+            this.line = token.beginLine;
+            this.name = token.image;
+            this.address = address.getValue();
+            this.length = length;
+        }
+    }
+
+    public List<VariableDeclaration> getVariableDeclarations() {
+        return Collections.unmodifiableList(variableDeclarations);
+    }
+
+    public Map<Integer, String> getControlRoles() {
+        return codeSegment.getControlRoles(codeStart);
+    }
+
+    private void recordVariable(Token id, Number address, int length) {
+        if (!preflight) variableDeclarations.add(new VariableDeclaration(id, address, length));
+    }
 
     private List<String> macroVariables = new ArrayList<>();
     private final List<Token> deferredGlobalReferences = new ArrayList<>();
@@ -32,6 +56,15 @@ public class CompilerParser implements CompilerParserConstants {
     /** First code address, or -1 until a program has parsed successfully. */
     public int getCodeStart() {
         return codeStart;
+    }
+
+    /** Select a profile on a fresh parser, before reading or looking ahead at any token. */
+    public void setLanguageVersion(LanguageVersion version) {
+        token_source.setLanguageVersion(version);
+    }
+
+    public LanguageVersion getLanguageVersion() {
+        return token_source.getLanguageVersion();
     }
 
     public static void main(String[] args) throws ParseException {
@@ -217,6 +250,7 @@ length = Integer.parseInt(size.image);
     case NUMBER:{
       rvalue = jj_consume_token(NUMBER);
 Number variable = dataSegment.newVariable(id.image, length, rvalue.image);
+            recordVariable(id, variable, length);
       break;
       }
     case IDENTIFIER:{
@@ -243,6 +277,7 @@ Number right  = dataSegment.getVariable(rvalue.image, offset);
             }
             int initialValue = dataSegment.get(sourceAddress).getValue();
             Number variable = dataSegment.newVariable(id.image, length, initialValue);
+            recordVariable(id, variable, length);
       break;
       }
     default:
@@ -332,9 +367,15 @@ codeSegment.setSourceLine(previousLine);
 }
 
   final public void LabelDeclaration() throws ParseException {Token label;
-    label = jj_consume_token(IDENTIFIER);
+    label = LabelName();
     jj_consume_token(COLON);
 codeSegment.placeLabel(label.image);
+}
+
+  final public Token LabelName() throws ParseException {Token label;
+    label = jj_consume_token(IDENTIFIER);
+{if ("" != null) return label;}
+    throw new Error("Missing return statement in function");
 }
 
   final public void Block() throws ParseException {
@@ -354,7 +395,7 @@ codeSegment.setSourceLine(whileToken.beginLine);
     condition = Condition(true);
     jj_consume_token(29);
     jj_consume_token(EOS);
-codeSegment.addJNZ(condition, target);
+codeSegment.addControlJNZ(condition, target, "branch-true");
 }
 
   final public void WhileBlock() throws ParseException {Number condition;
@@ -364,9 +405,9 @@ codeSegment.addJNZ(condition, target);
     jj_consume_token(28);
     condition = Condition(false);
     jj_consume_token(29);
-codeSegment.addJNZ(condition, end);
+codeSegment.addControlJNZ(condition, end, "branch-false");
     Block();
-codeSegment.addJNZ(new Number(0), begin);
+codeSegment.addControlJNZ(new Number(0), begin, "while-back");
         codeSegment.placeLabel(end);
 }
 
@@ -378,12 +419,12 @@ codeSegment.addJNZ(new Number(0), begin);
     jj_consume_token(28);
     condition = Condition(false);
     jj_consume_token(29);
-codeSegment.addJNZ(condition, elseLabel);
+codeSegment.addControlJNZ(condition, elseLabel, "branch-false");
     Block();
     switch ((jj_ntk==-1)?jj_ntk_f():jj_ntk) {
     case ELSE:{
       jj_consume_token(ELSE);
-codeSegment.addJNZ(new Number(0), endLabel);
+codeSegment.addControlJNZ(new Number(0), endLabel, "if-exit");
         codeSegment.placeLabel(elseLabel);
         hasElse = true;
       Block();
@@ -577,6 +618,7 @@ length = Integer.parseInt(size.image);
       rvalue = jj_consume_token(NUMBER);
 if( !preflight ) {
                 Number base = dataSegment.newVariable(id.image, length, rvalue.image);
+                recordVariable(id, base, length);
                 int value = Integer.parseInt(rvalue.image);
                 for( int j = 0; j < length; ++j ) {
                     Number variable = base.offset(j);
@@ -604,6 +646,7 @@ offset = Integer.parseInt(index.image);
       }
 if( !preflight ) {
                 Number left   = dataSegment.newVariable(id.image, length, 0);
+                recordVariable(id, left, length);
                 Number middle = dataSegment.newVariable(0);
                 Number right  = dataSegment.getVariable(rvalue.image, offset);
                 if( right == null ) {
@@ -758,9 +801,9 @@ codeSegment.addDEC(arg1);
     Token arg2;
     jj_consume_token(JNZ);
     arg1 = Variable();
-    arg2 = jj_consume_token(IDENTIFIER);
+    arg2 = LabelName();
 Number target = codeSegment.getLabel(arg2.image);
-        codeSegment.addJNZ(arg1, target);
+        codeSegment.addControlJNZ(arg1, target, "branch-true");
 }
 
   private boolean jj_2_1(int xla)
@@ -771,16 +814,22 @@ Number target = codeSegment.getLabel(arg2.image);
     finally { jj_save(0, xla); }
   }
 
-  private boolean jj_3_1()
+  private boolean jj_3R_LabelDeclaration_333_5_7()
  {
-    if (jj_3R_LabelDeclaration_273_5_7()) return true;
+    if (jj_3R_LabelName_341_5_8()) return true;
+    if (jj_scan_token(COLON)) return true;
     return false;
   }
 
-  private boolean jj_3R_LabelDeclaration_273_5_7()
+  private boolean jj_3R_LabelName_341_5_8()
  {
     if (jj_scan_token(IDENTIFIER)) return true;
-    if (jj_scan_token(COLON)) return true;
+    return false;
+  }
+
+  private boolean jj_3_1()
+ {
+    if (jj_3R_LabelDeclaration_333_5_7()) return true;
     return false;
   }
 
@@ -1088,7 +1137,7 @@ Number target = codeSegment.getLabel(arg2.image);
 	   p = p.next;
 	 }
 
-	 p.gen = jj_gen + xla - jj_la; 
+	 p.gen = jj_gen + xla - jj_la;
 	 p.first = token;
 	 p.arg = xla;
   }

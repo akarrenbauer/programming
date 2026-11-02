@@ -10,6 +10,27 @@ import java.util.Collections;
 /** Token Manager. */
 @SuppressWarnings ("unused")
 public class CompilerParserTokenManager implements CompilerParserConstants {
+    private LanguageVersion languageVersion = LanguageVersion.STRUCTURED;
+    private boolean tokenizationStarted;
+
+    public void setLanguageVersion(LanguageVersion version) {
+        java.util.Objects.requireNonNull(version, "language version");
+        if (tokenizationStarted) {
+            throw new IllegalStateException("Select the language version before tokenization; use a fresh parser.");
+        }
+        languageVersion = version;
+    }
+
+    public LanguageVersion getLanguageVersion() {
+        return languageVersion;
+    }
+
+    void CommonTokenAction(Token token) {
+        tokenizationStarted = true;
+        if (languageVersion == LanguageVersion.BEFORE_DO_WHILE && token.kind == DO) {
+            token.kind = IDENTIFIER;
+        }
+    }
 
   /** Debug output. */
   public  java.io.PrintStream debugStream = System.out;
@@ -377,9 +398,9 @@ private int jjMoveNfa_0(int startState, int curPos)
 
 /** Token literal values. */
 public static final String[] jjstrLiteralImages = {
-"", null, null, null, null, "\110\101\114\124", "\116\117\120", 
-"\111\116\103", "\104\105\103", "\112\116\132", "\166\141\162", "\75", "\144\157", 
-"\167\150\151\154\145", "\151\146", "\145\154\163\145", "\166\157\151\144", null, null, "\41\75", 
+"", null, null, null, null, "\110\101\114\124", "\116\117\120",
+"\111\116\103", "\104\105\103", "\112\116\132", "\166\141\162", "\75", "\144\157",
+"\167\150\151\154\145", "\151\146", "\145\154\163\145", "\166\157\151\144", null, null, "\41\75",
 "\75\75", "\72", "\73", "\142\145\147\151\156\72", "\133", "\135", "\173", "\175",
 "\50", "\51", "\54", };
 protected Token jjFillToken()
@@ -416,7 +437,7 @@ int jjmatchedPos;
 int jjmatchedKind;
 
 /** Get the next Token. */
-public Token getNextToken() 
+public Token getNextToken()
 {
   Token matchedToken;
   int curPos = 0;
@@ -433,6 +454,7 @@ public Token getNextToken()
       jjmatchedKind = 0;
       jjmatchedPos = -1;
       matchedToken = jjFillToken();
+      CommonTokenAction(matchedToken);
       return matchedToken;
    }
 
@@ -451,6 +473,7 @@ public Token getNextToken()
       if ((jjtoToken[jjmatchedKind >> 6] & (1L << (jjmatchedKind & 077))) != 0L)
       {
          matchedToken = jjFillToken();
+         CommonTokenAction(matchedToken);
          return matchedToken;
       }
       else
@@ -542,7 +565,7 @@ private void jjCheckNAddTwoStates(int state1, int state2)
   }
 
   /** Reinitialise parser. */
-  
+
   public void ReInit(SimpleCharStream stream)
   {
 
@@ -565,7 +588,7 @@ private void jjCheckNAddTwoStates(int state1, int state2)
 
   /** Reinitialise parser. */
   public void ReInit(SimpleCharStream stream, int lexState)
-  
+
   {
     ReInit(stream);
     SwitchTo(lexState);
@@ -588,20 +611,20 @@ public static final String[] lexStateNames = {
 
 /** Lex State array. */
 public static final int[] jjnewLexState = {
-   -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 
-   -1, -1, -1, -1, -1, -1, 
+   -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+   -1, -1, -1, -1, -1, -1,
 };
 static final long[] jjtoToken = {
-   0x7fffffe1L, 
+   0x7fffffe1L,
 };
 static final long[] jjtoSkip = {
-   0x1eL, 
+   0x1eL,
 };
 static final long[] jjtoSpecial = {
-   0x0L, 
+   0x0L,
 };
 static final long[] jjtoMore = {
-   0x0L, 
+   0x0L,
 };
     protected SimpleCharStream  input_stream;
 

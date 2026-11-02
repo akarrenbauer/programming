@@ -25,6 +25,9 @@ import javafx.scene.control.IndexRange;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.skin.TextAreaSkin;
 import javafx.scene.image.WritableImage;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
+import javafx.scene.robot.Robot;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.PathElement;
@@ -116,6 +119,65 @@ public final class SourceEditorTest {
                 expect(textChanges.get() == 2, "only user edits may change the text property");
             });
 
+            checkFx("language profile changes recolor do without changing the document or execution state", () -> {
+                String source = "do:\ndo(value);\nINC do;\n";
+                show(source);
+                expect(editor.getLanguageVersion() == LanguageVersion.STRUCTURED, "editors default to the structured profile");
+                expectClipMatches("keyword");
+                expect(highlights().lookup(".syntax-label") == null && highlights().lookup(".syntax-macro") == null,
+                        "reserved do must not receive label or macro colors");
+                String draft = source + "// retained edit\n";
+                editor.appendText("// retained edit\n");
+                editor.selectRange(12, 4);
+                int instruction = source.indexOf("INC");
+                IndexRange current = new IndexRange(instruction, instruction + "INC do;".length());
+                List<IndexRange> callers = List.of(new IndexRange(0, 3));
+                editor.setExecutionRange(current.getStart(), current.getEnd(), true);
+                editor.setCallerRanges(callers);
+                AtomicInteger textChanges = new AtomicInteger();
+                editor.textProperty().addListener((observable, before, after) -> textChanges.incrementAndGet());
+                editor.setLanguageVersion(LanguageVersion.BEFORE_DO_WHILE);
+                layout();
+                expect(editor.getLanguageVersion() == LanguageVersion.BEFORE_DO_WHILE, "the selected profile is observable");
+                expectClipMatches("label");
+                expectClipMatches("macro");
+                expectClipMatches("plain");
+                expect(highlights().lookup(".syntax-keyword") == null, "ordinary do is no longer a keyword");
+                expect(current.equals(editor.getExecutionRange()) && callers.equals(editor.getCallerRanges()) && editor.isExecutionHalted(),
+                        "changing lexical profile preserves current caller and halted metadata");
+                expectExecutionMarkers(current, callers);
+                expect(editor.getAnchor() == 12 && editor.getCaretPosition() == 4 && draft.equals(editor.getText())
+                                && textChanges.get() == 0 && editor.isUndoable(),
+                        "profile changes preserve selection source and undo without making a draft dirty");
+                editor.setLanguageVersion(LanguageVersion.STRUCTURED);
+                layout();
+                expectClipMatches("keyword");
+                expect(highlights().lookup(".syntax-label") == null && highlights().lookup(".syntax-macro") == null,
+                        "switching back removes stale identifier-colored layers");
+                expectExecutionMarkers(current, callers);
+                expect(textChanges.get() == 0 && editor.getAnchor() == 12 && editor.getCaretPosition() == 4,
+                        "switching back also preserves text and selection");
+                editor.undo();
+                layout();
+                expect(source.equals(editor.getText()), "undo removes only the user's text edit");
+                editor.redo();
+                layout();
+                expect(draft.equals(renderedText()) && editor.getLanguageVersion() == LanguageVersion.STRUCTURED,
+                        "redo restores the draft while retaining the chosen profile");
+            });
+
+            checkFx("a profile chosen before skin creation controls the first render", () -> {
+                editor = new SourceEditor("do: do(value); INC do;\n");
+                editor.setLanguageVersion(LanguageVersion.BEFORE_DO_WHILE);
+                stage.setScene(new Scene(new StackPane(editor), 720, 360));
+                stage.show();
+                layout();
+                expectClipMatches("label");
+                expectClipMatches("macro");
+                expect(highlights().lookup(".syntax-keyword") == null, "first render uses the selected earlier profile");
+                expect(!editor.isUndoable(), "selecting an initial profile adds no editing history");
+            });
+
             checkFx("style and layout preserve caret selection and undo history", () -> {
                 show(EXAMPLE);
                 String edited = EXAMPLE + "// unsaved draft\n";
@@ -158,6 +220,136 @@ public final class SourceEditorTest {
                 editor.redo();
                 layout();
                 expect(edited.equals(editor.getText()), "redo restores exact edited source");
+            });
+
+            checkFx("tabs render at two-column stops without replacing source characters", () -> {
+                String source = "\tINC value;\n  INC value;\n\t\tHALT;\n    HALT;\n";
+                show(source);
+                expect(nativeText().getTabSize() == 2, "native caret and selection use two-column tab stops");
+                for (Node layer : highlights().getChildren()) {
+                    expect(((Text) layer).getTabSize() == 2, "every syntax layer uses the same tab width");
+                }
+                Text nativeText = nativeText();
+                double tabIndent = shapeBounds(nativeText, nativeText.caretShape(1, true)).getMinX();
+                int spaces = source.indexOf("  INC") + 2;
+                double spaceIndent = shapeBounds(nativeText, nativeText.caretShape(spaces, true)).getMinX();
+                expect(Math.abs(tabIndent - spaceIndent) <= 0.01, "one leading tab aligns with two spaces");
+                int doubleTab = source.indexOf("\t\tHALT") + 2;
+                int fourSpaces = source.indexOf("    HALT") + 4;
+                expect(Math.abs(shapeBounds(nativeText, nativeText.caretShape(doubleTab, true)).getMinX()
+                        - shapeBounds(nativeText, nativeText.caretShape(fourSpaces, true)).getMinX()) <= 0.01,
+                        "two leading tabs align with four spaces");
+                expect(source.equals(editor.getText()) && source.equals(renderedText()), "literal tabs remain unchanged");
+                expect(!editor.isUndoable(), "tab display preferences add no edit history");
+                expectClipMatches("instruction");
+                editor.setStyle("-fx-font-family: monospace; -fx-font-size: 21px;");
+                layout();
+                expect(nativeText().getTabSize() == 2 && token("instruction").getTabSize() == 2,
+                        "font changes retain tab width in native text and colored layers");
+                expectClipMatches("instruction");
+            });
+
+            checkFx("Enter preserves exact leading spaces and tabs without adding brace indentation", () -> {
+                for (String prefix : List.of("  ", "    ", "\t", " \t  ")) {
+                    String source = "begin:\n" + prefix + "if (value != 0) {";
+                    show(source); editor.positionCaret(source.length()); editor.requestFocus();
+                    AtomicInteger changes = new AtomicInteger();
+                    editor.textProperty().addListener((observable, before, after) -> changes.incrementAndGet());
+                    pressEnter(false, false, false, false); layout();
+                    String expected = source + "\n" + prefix;
+                    expect(expected.equals(editor.getText()) && expected.equals(renderedText()), "Enter copies literal indentation without expanding tabs or adding a brace level");
+                    expect(editor.getCaretPosition() == expected.length() && editor.getAnchor() == expected.length(), "caret lands after the inherited indentation");
+                    expect(stage.getScene().getFocusOwner() == editor && changes.get() == 1, "Enter remains one focused editing operation");
+                    expect(nativeText().getTabSize() == 2, "autoindent leaves native tab display width unchanged");
+                    editor.undo(); expect(source.equals(editor.getText()), "one undo removes newline and indentation together");
+                    editor.redo(); expect(expected.equals(editor.getText()), "one redo restores newline and indentation together");
+                }
+                show("  "); editor.positionCaret(2); editor.replaceSelection("INC value;");
+                String typed = editor.getText();
+                TextArea nativeEditor = new TextArea("  ");
+                ((StackPane) stage.getScene().getRoot()).getChildren().add(nativeEditor); layout();
+                nativeEditor.positionCaret(2); nativeEditor.replaceSelection("INC value;");
+                nativeEditor.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.ENTER, false, false, false, false));
+                pressEnter(false, false, false, false);
+                nativeEditor.undo(); editor.undo();
+                expect(nativeEditor.getText().equals(editor.getText()), "adjacent typing and Enter retain native undo grouping");
+                editor.redo(); expect(editor.getText().equals(typed + "\n  "), "redo restores the grouped edit with indentation intact");
+                ((StackPane) stage.getScene().getRoot()).getChildren().remove(nativeEditor);
+            });
+
+            checkFx("Enter splits code indentation and blank lines at the selection start", () -> {
+                String source = "begin:\n    INC value;\nHALT;";
+                int code = source.indexOf("INC");
+                for (int position : List.of(code + 4, code, code - 2, source.indexOf("    "), source.length())) {
+                    show(source); editor.positionCaret(position);
+                    int start = source.lastIndexOf('\n', position - 1) + 1;
+                    int count = Math.min(position - start, position <= code + "INC value;".length() ? 4 : 0);
+                    String indentation = " ".repeat(count);
+                    pressEnter(false, false, false, false);
+                    expect(editor.getText().equals(source.substring(0, position) + "\n" + indentation + source.substring(position)), "midline/start/indent splits preserve the suffix without doubling its existing indentation");
+                    expect(editor.getCaretPosition() == position + 1 + indentation.length(), "split caret follows inserted indentation only");
+                }
+                show("\t  "); editor.positionCaret(editor.getLength()); pressEnter(false, false, false, false);
+                expect(editor.getText().equals("\t  \n\t  "), "whitespace-only lines retain their literal indentation");
+                source = "    INC value;\n\tDEC value;\nHALT;";
+                int selectionStart = source.indexOf("INC"), selectionEnd = source.indexOf("value;", source.indexOf("DEC")) + 5;
+                for (boolean reverse : List.of(false, true)) {
+                    show(source); editor.selectRange(reverse ? selectionEnd : selectionStart, reverse ? selectionStart : selectionEnd);
+                    pressEnter(false, false, false, false);
+                    expect(editor.getText().equals(source.substring(0, selectionStart) + "\n    " + source.substring(selectionEnd)), "multiline replacement uses the selection start line regardless of selection direction");
+                    expect(editor.getCaretPosition() == selectionStart + 5 && editor.getSelection().getLength() == 0, "selection replacement collapses after inherited indentation");
+                    editor.undo(); expect(source.equals(editor.getText()), "undo restores all selected text and original indentation");
+                }
+            });
+
+            checkFx("autoindent respects consumed events read-only state and modified Enter", () -> {
+                String source = "  INC value;";
+                show(source); editor.positionCaret(source.length()); editor.setEditable(false);
+                pressEnter(false, false, false, false);
+                expect(source.equals(editor.getText()) && !editor.isUndoable(), "read-only source rejects Enter without an undo edit");
+                editor.setEditable(true); editor.setDisable(true); pressEnter(false, false, false, false);
+                expect(source.equals(editor.getText()), "disabled editor ignores Enter");
+                editor.setDisable(false);
+                javafx.event.EventHandler<KeyEvent> intercept = event -> { if (event.getCode() == KeyCode.ENTER) event.consume(); };
+                editor.addEventFilter(KeyEvent.KEY_PRESSED, intercept);
+                pressEnter(false, false, false, false);
+                expect(source.equals(editor.getText()) && !editor.isUndoable(), "an application filter can consume Enter without inserting a line");
+                editor.removeEventFilter(KeyEvent.KEY_PRESSED, intercept);
+                for (int modifier = 0; modifier < 4; ++modifier) {
+                    TextArea nativeEditor = new TextArea(source); nativeEditor.positionCaret(source.length());
+                    StackPane root = (StackPane) stage.getScene().getRoot(); root.getChildren().add(nativeEditor); layout();
+                    boolean shift = modifier == 0, control = modifier == 1, alt = modifier == 2, meta = modifier == 3;
+                    nativeEditor.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.ENTER, shift, control, alt, meta));
+                    pressEnter(shift, control, alt, meta);
+                    expect(nativeEditor.getText().equals(editor.getText()), "modified Enter follows the platform TextArea behavior");
+                    root.getChildren().remove(nativeEditor);
+                    editor.setText(source); editor.positionCaret(source.length());
+                }
+            });
+
+            check("native Enter gesture inserts once and invalidates source markers normally", () -> {
+                String source = "begin:\n\t  INC value;";
+                AtomicInteger changes = new AtomicInteger();
+                onFx(() -> {
+                    show(source); editor.positionCaret(source.length()); editor.requestFocus();
+                    int command = source.indexOf("INC");
+                    editor.setExecutionRange(command, source.length(), false);
+                    editor.setLinkedRange(command, source.length());
+                    editor.textProperty().addListener((observable, before, after) -> changes.incrementAndGet());
+                });
+                awaitLayoutPulse();
+                onFx(() -> { Robot robot = new Robot(); robot.keyPress(KeyCode.ENTER); robot.keyRelease(KeyCode.ENTER); });
+                awaitLayoutPulse();
+                onFx(() -> {
+                    layout();
+                    expect(editor.getText().equals(source + "\n\t  ") && changes.get() == 1, "native pressed/typed/released sequence inserts exactly one indented line");
+                    expect(editor.getExecutionRange() == null && editor.getLinkedRange() == null
+                                    && executionHighlights().getChildren().isEmpty() && linkedHighlights().getChildren().isEmpty(),
+                            "autoindent clears stale execution and linked source markers as a normal edit");
+                    expect(editor.getText().equals(renderedText()), "syntax overlay renders the complete indented edit");
+                    editor.undo(); expect(source.equals(editor.getText()), "native gesture is one undoable edit");
+                    editor.redo(); expect(editor.getText().equals(source + "\n\t  "), "native gesture has one matching redo");
+                });
             });
 
             checkFx("highlight caret and range positions match native tabs and multiline text", () -> {
@@ -289,6 +481,91 @@ public final class SourceEditorTest {
                         "explicit clearing removes primary caller and halted state");
             });
 
+            checkFx("linked source lines retain exact ranges and follow tabs fonts and scrolling", () -> {
+                String source = geometrySource().repeat(10);
+                show(source);
+                int start = source.indexOf("INC") + 1;
+                int end = source.indexOf("word") + 7;
+                IndexRange exact = new IndexRange(start, end);
+                IndexRange lines = new IndexRange(source.lastIndexOf('\n', start - 1) + 1, source.indexOf('\n', end));
+                editor.selectRange(18, 5);
+                editor.setLinkedRange(start, end);
+                layout();
+                expect(exact.equals(editor.getLinkedRange()), "linked metadata retains exact source ownership rather than expanded lines");
+                expectMarkerRange(linkedMarker(), lines);
+                expect(linkedHighlights().isMouseTransparent() && !linkedHighlights().isManaged(),
+                        "linked decoration cannot intercept source editing gestures or change layout");
+                editor.setStyle("-fx-font-family: monospace; -fx-font-size: 20px;");
+                stage.setWidth(430);
+                stage.setHeight(260);
+                layout();
+                expectMarkerRange(linkedMarker(), lines);
+                editor.setScrollTop(150);
+                editor.setScrollLeft(60);
+                layout();
+                expect(editor.getScrollTop() > 0 && editor.getScrollLeft() > 0, "linked marker fixture scrolls in both directions");
+                expectMarkerRange(linkedMarker(), lines);
+                expect(editor.getAnchor() == 18 && editor.getCaretPosition() == 5 && !editor.isUndoable(),
+                        "linked highlighting and layout preserve selection and add no edit history");
+            });
+
+            checkFx("linked and execution decorations coexist and clear independently", () -> {
+                show(EXAMPLE);
+                int start = EXAMPLE.indexOf("DEC");
+                IndexRange current = new IndexRange(start, start + "DEC result;".length());
+                List<IndexRange> callers = List.of(new IndexRange(0, EXAMPLE.indexOf('\n')));
+                editor.setExecutionRange(current.getStart(), current.getEnd(), true);
+                editor.setCallerRanges(callers);
+                editor.setLinkedRange(current.getStart(), current.getEnd());
+                layout();
+                expectExecutionMarkers(current, callers);
+                expect(!linkedMarker().getFill().equals(executionMarker("execution-current").getFill())
+                                && !linkedMarker().getFill().equals(executionMarker("execution-caller").getFill()),
+                        "link highlight has its own color independent of debugger state");
+                Parent content = linkedHighlights().getParent();
+                expect(content.getChildrenUnmodifiable().indexOf(linkedHighlights())
+                                < content.getChildrenUnmodifiable().indexOf(executionHighlights()),
+                        "debugger markers remain visible above the containing-line navigation background");
+                editor.clearLinkedRange();
+                layout();
+                expect(editor.getLinkedRange() == null && linkedHighlights().getChildren().isEmpty(), "clearing link removes its path");
+                expectExecutionMarkers(current, callers);
+                expect(editor.isExecutionHalted(), "clearing a link retains halted state");
+                editor.setLinkedRange(current.getStart(), current.getEnd());
+                editor.clearExecutionHighlights();
+                layout();
+                expect(current.equals(editor.getLinkedRange()) && !linkedHighlights().getChildren().isEmpty(),
+                        "clearing debugger state retains linked navigation");
+                expect(executionHighlights().getChildren().isEmpty(), "debugger backgrounds can be cleared independently");
+                editor.setLanguageVersion(LanguageVersion.BEFORE_DO_WHILE);
+                layout();
+                expect(current.equals(editor.getLinkedRange()), "language profile changes retain source navigation");
+            });
+
+            checkFx("linked ranges work before skin creation and use half-open containing line boundaries", () -> {
+                String source = "\tINC value;\n\tHALT;\n";
+                editor = new SourceEditor(source);
+                int nextLine = source.indexOf('\n') + 1;
+                editor.setLinkedRange(2, nextLine);
+                stage.setScene(new Scene(new StackPane(editor), 720, 360));
+                stage.show();
+                layout();
+                expectMarkerRange(linkedMarker(), new IndexRange(0, nextLine - 1));
+                editor.setLinkedRange(nextLine + 2, nextLine + 2);
+                layout();
+                expectMarkerRange(linkedMarker(), new IndexRange(nextLine, source.length() - 1));
+                expect(editor.getLinkedRange().getLength() == 0, "a caret link stays a zero-length ownership range");
+                IndexRange previous = editor.getLinkedRange();
+                for (IndexRange invalid : List.of(new IndexRange(-1, 2), new IndexRange(0, source.length() + 1))) {
+                    try {
+                        editor.setLinkedRange(invalid.getStart(), invalid.getEnd());
+                        throw new AssertionError("invalid linked range accepted");
+                    } catch (IllegalArgumentException expected) {
+                        expect(previous.equals(editor.getLinkedRange()), "invalid range leaves prior link intact");
+                    }
+                }
+            });
+
             check("revealing source scrolls without moving focus selection caret or undo history", () -> {
                 String original = geometrySource().repeat(16);
                 String draft = "// " + "padding ".repeat(40) + "TARGET;\n";
@@ -316,6 +593,7 @@ public final class SourceEditorTest {
                     editor.setScrollTop(0);
                     editor.setScrollLeft(0);
                     editor.setExecutionRange(target, target + "TARGET".length(), false);
+                    editor.setLinkedRange(target, target + "TARGET".length());
                     editor.revealSourceOffset(target);
                     layout();
                 });
@@ -334,6 +612,12 @@ public final class SourceEditorTest {
                     expect(edited.equals(editor.getText()) && textChanges.get() == 0,
                             "reveal must not change source text");
                     expect(editor.isUndoable(), "reveal must retain prior undo history");
+                    expect(new IndexRange(target, target + "TARGET".length()).equals(editor.getLinkedRange()),
+                            "linking and revealing retain the exact source range");
+                    editor.clearLinkedRange();
+                    expect(stage.getScene().getFocusOwner() == focusTarget.get()
+                                    && editor.getAnchor() == 18 && editor.getCaretPosition() == 5,
+                            "clearing navigation also preserves keyboard focus and selection");
                     editor.undo();
                     expect(original.equals(editor.getText()), "undo after reveal must undo the user's edit");
                 });
@@ -344,6 +628,7 @@ public final class SourceEditorTest {
                 int instruction = EXAMPLE.indexOf("HALT");
                 editor.setExecutionRange(instruction, instruction + 5, true);
                 editor.setCallerRanges(List.of(new IndexRange(0, EXAMPLE.indexOf('\n'))));
+                editor.setLinkedRange(instruction, instruction + 5);
                 layout();
                 expect(!executionHighlights().getChildren().isEmpty(), "fixture must start decorated");
                 editor.insertText(0, "// draft\n");
@@ -351,11 +636,15 @@ public final class SourceEditorTest {
                 expect(editor.getExecutionRange() == null && editor.getCallerRanges().isEmpty()
                         && !editor.isExecutionHalted(), "editing must invalidate all source execution metadata");
                 expect(executionHighlights().getChildren().isEmpty(), "editing must remove visible execution markers");
+                expect(editor.getLinkedRange() == null && linkedHighlights().getChildren().isEmpty(),
+                        "editing also invalidates stale linked source offsets");
                 editor.undo();
                 layout();
                 expect(EXAMPLE.equals(editor.getText()), "undo restores the user's source");
                 expect(editor.getExecutionRange() == null && executionHighlights().getChildren().isEmpty(),
                         "undo must not resurrect stale execution decorations");
+                expect(editor.getLinkedRange() == null && linkedHighlights().getChildren().isEmpty(),
+                        "undo must not resurrect stale source links");
             });
 
             checkFx("disposing and recreating the skin preserves native editing", () -> {
@@ -418,6 +707,10 @@ public final class SourceEditorTest {
         layout();
     }
 
+    private static void pressEnter(boolean shift, boolean control, boolean alt, boolean meta) {
+        editor.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.ENTER, shift, control, alt, meta));
+    }
+
     private static void layout() {
         stage.getScene().getRoot().applyCss();
         stage.getScene().getRoot().layout();
@@ -434,6 +727,18 @@ public final class SourceEditorTest {
         Node node = editor.lookup(".execution-highlights");
         expect(node instanceof Group, "execution decoration group must be present");
         return (Group) node;
+    }
+
+    private static Group linkedHighlights() {
+        Node node = editor.lookup(".linked-highlights");
+        expect(node instanceof Group, "linked source decoration group must be present");
+        return (Group) node;
+    }
+
+    private static javafx.scene.shape.Path linkedMarker() {
+        Node node = linkedHighlights().lookup(".source-linked");
+        expect(node instanceof javafx.scene.shape.Path, "linked source path must be present");
+        return (javafx.scene.shape.Path) node;
     }
 
     private static javafx.scene.shape.Path executionMarker(String styleClass) {
@@ -556,7 +861,7 @@ public final class SourceEditorTest {
         javafx.scene.shape.Path clip = (javafx.scene.shape.Path) layer.getClip();
         List<PathElement> expected = new ArrayList<>();
         Text nativeText = nativeText();
-        for (SourceSyntax.Span span : SourceSyntax.highlight(editor.getText())) {
+        for (SourceSyntax.Span span : SourceSyntax.highlight(editor.getText(), editor.getLanguageVersion())) {
             if (span.kind().name().equalsIgnoreCase(kind)) {
                 expected.addAll(List.of(nativeText.rangeShape(span.start(), span.end())));
             }

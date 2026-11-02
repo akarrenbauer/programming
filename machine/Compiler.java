@@ -88,16 +88,25 @@ public class Compiler {
     }
 
     public static List<String> preProcess( List<String> sourceCode, SourceLoader sourceLoader ) throws ParseException, IOException, IllegalArgumentException {
-        return texts(preProcessMapped(anonymous(sourceCode), path -> anonymous(sourceLoader.load(path))));
+        return preProcess(sourceCode, sourceLoader, LanguageVersion.STRUCTURED);
     }
 
-    private static List<MappedText> preProcessMapped(List<MappedText> sourceCode, MappedLoader loader)
+    /** Applies the selected profile to validation before textual macro expansion. */
+    public static List<String> preProcess(List<String> sourceCode, SourceLoader sourceLoader, LanguageVersion version)
             throws ParseException, IOException {
+        return texts(preProcessMapped(anonymous(sourceCode), path -> anonymous(sourceLoader.load(path)), System.out, version));
+    }
+
+    private static List<MappedText> preProcessMapped(List<MappedText> sourceCode, MappedLoader loader,
+            PrintStream listing, LanguageVersion version) throws ParseException, IOException {
+        Objects.requireNonNull(version, "language version");
         List<MappedText> strippedSourceCode = stripMappedComments(includeMappedImports(sourceCode, loader));
 
-        int lineNumber = 1;
-        for( MappedText line : strippedSourceCode ) {
-            System.out.printf("%4d\t%s%n", lineNumber++, line.text);
+        if (listing != null) {
+            int lineNumber = 1;
+            for (MappedText line : strippedSourceCode) {
+                listing.printf("%4d\t%s%n", lineNumber++, line.text);
+            }
         }
 
         List<String> codeCopy = texts(strippedSourceCode);
@@ -107,7 +116,9 @@ public class Compiler {
             .collect(Collectors.joining("\n"))
             .replaceAll("#|//(~[\\n])*","");
 
-        new CompilerParser(new StringReader(joinedString)).Program(true);
+        CompilerParser preflightParser = new CompilerParser(new StringReader(joinedString));
+        preflightParser.setLanguageVersion(version);
+        preflightParser.Program(true);
 
         Map<String, List<String>> macroMap = new HashMap<>();
         int labelCounter = 0;
@@ -332,20 +343,38 @@ public class Compiler {
 
     /** Compiles the supplied main source and obtains direct imports from the loader. */
     public static List<Integer> compile(List<String> sourceCode, SourceLoader sourceLoader)  throws IOException, ParseException, IllegalArgumentException {
-        List<MappedText> expanded = preProcessMapped(anonymous(sourceCode), path -> anonymous(sourceLoader.load(path)));
-        return new ArrayList<>(compileExpanded(expanded, Map.of()).bytecode());
+        return compile(sourceCode, sourceLoader, LanguageVersion.STRUCTURED);
+    }
+
+    /** Uses the same per-compilation language profile for both parser passes and imports. */
+    public static List<Integer> compile(List<String> sourceCode, SourceLoader sourceLoader, LanguageVersion version)
+            throws IOException, ParseException {
+        List<MappedText> expanded = preProcessMapped(anonymous(sourceCode), path -> anonymous(sourceLoader.load(path)), System.out, version);
+        return new ArrayList<>(compileExpanded(expanded, Map.of(), version).bytecode());
     }
 
     /** Compiles normalized source snapshots without re-reading any editor-owned buffers. */
     public static CompilationResult compileWithSourceMap(SourceDocument main, SourceResolver imports)
             throws IOException, ParseException {
-        Map<Path, String> sources = new LinkedHashMap<>();
-        List<MappedText> expanded = preProcessMapped(documentLines(snapshot(main, sources)),
-            path -> documentLines(snapshot(imports.resolve(path), sources)));
-        return compileExpanded(expanded, sources);
+        return compileWithSourceMap(main, imports, System.out);
     }
 
-    private static CompilationResult compileExpanded(List<MappedText> expanded, Map<Path, String> sources)
+    /** Compiles with an optional preprocessing listing; null suppresses the listing. */
+    public static CompilationResult compileWithSourceMap(SourceDocument main, SourceResolver imports,
+            PrintStream listing) throws IOException, ParseException {
+        return compileWithSourceMap(main, imports, listing, LanguageVersion.STRUCTURED);
+    }
+
+    /** Uses one language profile for the main source, imports, and both parsing passes. */
+    public static CompilationResult compileWithSourceMap(SourceDocument main, SourceResolver imports,
+            PrintStream listing, LanguageVersion version) throws IOException, ParseException {
+        Map<Path, String> sources = new LinkedHashMap<>();
+        List<MappedText> expanded = preProcessMapped(documentLines(snapshot(main, sources)),
+            path -> documentLines(snapshot(imports.resolve(path), sources)), listing, version);
+        return compileExpanded(expanded, sources, version);
+    }
+
+    private static CompilationResult compileExpanded(List<MappedText> expanded, Map<Path, String> sources, LanguageVersion version)
             throws ParseException {
         List<String> codeCopy = texts(expanded);
         codeCopy.add("");
@@ -355,6 +384,7 @@ public class Compiler {
             .replaceAll("#|//(~[\\n])*","");
 
         CompilerParser parser = new CompilerParser(new ByteArrayInputStream(joinedString.getBytes(StandardCharsets.UTF_8)));
+        parser.setLanguageVersion(version);
         List<Integer> bytecode = parser.Program(false).stream().map(e -> Integer.valueOf(e.getValue())).collect(Collectors.toList());
         Map<Integer, SourceTrace> sourceMap = new LinkedHashMap<>();
         for (var instruction : parser.getInstructionSourceLines().entrySet()) {
@@ -366,7 +396,27 @@ public class Compiler {
                 }
             }
         }
-        return new CompilationResult(bytecode, sourceMap, parser.getCodeStart(), sources);
+        List<CompilationResult.Variable> variables = new ArrayList<>();
+        for (CompilerParser.VariableDeclaration declaration : parser.getVariableDeclarations()) {
+            int line = declaration.line - 1;
+            if (line < 0 || line >= expanded.size()) continue;
+            SourceTrace trace = expanded.get(line).origin(0);
+            if (trace == null) continue;
+            String name = declaration.name;
+            String original = sources.get(trace.location().file());
+            if (original != null) {
+                SourceLocation location = trace.location();
+                Matcher named = Pattern.compile("\\bvar\\s+([A-Za-z_][A-Za-z_0-9]*)")
+                        .matcher(original.substring(location.startOffset(), Math.min(location.endOffset(), original.length()))
+                                .replaceAll("(?m)//[^\\r\\n]*", " "));
+                // Literal arguments can introduce private declarations at a macro callsite.
+                if (!named.find()) continue;
+                name = named.group(1);
+            }
+            variables.add(new CompilationResult.Variable(trace, name, declaration.address, declaration.length));
+        }
+        return new CompilationResult(bytecode, sourceMap, parser.getCodeStart(), sources,
+                parser.getControlRoles(), variables);
     }
 
     private static SourceDocument snapshot(SourceDocument document, Map<Path, String> sources) {

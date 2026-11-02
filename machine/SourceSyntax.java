@@ -2,6 +2,7 @@ package machine;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /** Tolerant syntax classification for source editing, independent of the compiler parser. */
@@ -61,6 +62,12 @@ public final class SourceSyntax {
      * or line boundary. Adjacent spans of the same kind are combined.
      */
     public static List<Span> highlight(String source) {
+        return highlight(source, LanguageVersion.STRUCTURED);
+    }
+
+    /** Classifies do as an ordinary identifier before structured do/while is introduced. */
+    public static List<Span> highlight(String source, LanguageVersion version) {
+        Objects.requireNonNull(version, "version");
         if (source == null || source.isEmpty()) {
             return List.of();
         }
@@ -87,12 +94,18 @@ public final class SourceSyntax {
                 }
 
                 String word = source.substring(start, position);
+                int following = position;
+                while (following < source.length() && isWhitespace(source.charAt(following))) {
+                    ++following;
+                }
+                char next = following < source.length() ? source.charAt(following) : '\0';
                 if (digitsOnly) {
                     kind = Kind.NUMBER;
                 } else if (isDigit(current)) {
                     // Do not color a numeric prefix in an incomplete word such as 12abc.
                     kind = Kind.PLAIN;
-                } else if (KEYWORDS.contains(word)) {
+                } else if (KEYWORDS.contains(word)
+                        && (!word.equals("do") || version == LanguageVersion.STRUCTURED)) {
                     kind = Kind.KEYWORD;
                 } else if (INSTRUCTIONS.contains(word)) {
                     kind = Kind.INSTRUCTION;
@@ -101,11 +114,6 @@ public final class SourceSyntax {
                     ++position;
                     kind = Kind.LABEL;
                 } else {
-                    int following = position;
-                    while (following < source.length() && isWhitespace(source.charAt(following))) {
-                        ++following;
-                    }
-                    char next = following < source.length() ? source.charAt(following) : '\0';
                     kind = next == ':' ? Kind.LABEL : next == '(' ? Kind.MACRO : Kind.PLAIN;
                 }
             } else if (isOperator(current)) {

@@ -38,6 +38,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -67,13 +68,22 @@ public class MachineGUI extends Application {
     private FlowPane executionCallers;
     private CheckBox followExecution;
     private CompilationResult compiledProgram;
+    private FlowchartExecution diagramExecution;
     private SourceTrace followedTrace;
     private SourceTrace displayedTrace;
     private boolean displayedHalted;
     private Button saveSourceButton;
     private Button compileButton;
     private final Map<SourceWorkspace.Document, Tab> sourceEditors = new LinkedHashMap<>();
-    private final List<Button> controlsDisabledWhileRunning = new ArrayList<>();
+    private ComboBox<String> diagramMode;
+    private SplitPane sourceDiagramEditors;
+    private SplitPane machineWorkspace;
+    private double sourceOnlyDivider = .45;
+    private final Map<SourceWorkspace.Document, SourceDiagrams> sourceDiagrams = new LinkedHashMap<>();
+    private SourceWorkspace.Document displayedDiagramDocument;
+    private String displayedDiagramMode;
+    private boolean applyingDiagramSource;
+    private final List<Control> controlsDisabledWhileRunning = new ArrayList<>();
     public static void main(String[] args) {
         launch(args);
     }
@@ -166,10 +176,14 @@ public class MachineGUI extends Application {
         valueColumn.setOnEditCommit(event -> {
                     MemoryEntry entry = event.getRowValue();
                     int newValue = event.getNewValue();
+                    int previousValue = machine.get(entry.getAddress());
                     entry.setValue(newValue);
 
                     // Update the underlying machine memory
                     machine.set(entry.getAddress(), newValue);
+                    if (entry.getAddress() == 0 && previousValue != newValue && diagramExecution != null) {
+                        diagramExecution.resetHistory(machine);
+                    }
 
                     // Refresh table view to reflect updated value
                     memoryTable.refresh();
@@ -247,7 +261,7 @@ public class MachineGUI extends Application {
 
         stepButton.setOnAction(e -> {
                     if (runTimer != null) return; // ignore while running
-                    machine.step();
+                    stepMachine(1);
                     updateMemoryDisplay();
             });
 
@@ -261,7 +275,7 @@ public class MachineGUI extends Application {
                                 try {
                                     int n = Integer.parseInt(input.trim());
                                     if (n < 0) throw new NumberFormatException("negative");
-                                    machine.step(n);
+                                    stepMachine(n);
                                     updateMemoryDisplay();
                                 } catch (NumberFormatException ex) {
                                     Alert alert = new Alert(Alert.AlertType.ERROR, "Please enter a non-negative integer.", ButtonType.OK);
@@ -298,7 +312,7 @@ public class MachineGUI extends Application {
                                 return;
                             }
                             try {
-                                machine.step(10000);
+                                stepMachine(10000);
                             } catch (Exception ex) {
                                 // stop & report
                                 finishRun(runButton, stopButton, stepButton, stepNButton );
@@ -338,12 +352,13 @@ public class MachineGUI extends Application {
         hbox.prefWidthProperty().bind(customPane.widthProperty());
         tableWithTopBtn.prefHeightProperty().bind(customPane.heightProperty().subtract(10));
 
-        SplitPane workspace = new SplitPane(customPane, createSourceEditor());
-        workspace.setDividerPositions(0.45);
-        FlowPane buttonBox = new FlowPane(5, 5, saveButton, loadButton, reloadButton, openButton, compileButton, resetButton, runButton, stopButton, stepButton, stepNButton);
+        machineWorkspace = new SplitPane(customPane, createSourceEditor());
+        machineWorkspace.setDividerPositions(sourceOnlyDivider);
+        FlowPane buttonBox = new FlowPane(5, 5, saveButton, loadButton, reloadButton, openButton,
+                compileButton, resetButton, runButton, stopButton, stepButton, stepNButton);
         buttonBox.setPadding(new Insets(6));
-        VBox vbox = new VBox(2, buttonBox, workspace);
-        VBox.setVgrow(workspace, Priority.ALWAYS);
+        VBox vbox = new VBox(2, buttonBox, machineWorkspace);
+        VBox.setVgrow(machineWorkspace, Priority.ALWAYS);
         controlsDisabledWhileRunning.addAll(List.of(saveButton, loadButton, reloadButton,
                 openButton, compileButton, resetButton));
 
@@ -438,6 +453,10 @@ public class MachineGUI extends Application {
         FileChooser fileChooser = new FileChooser();
         fileChooser.setTitle("Open Source File");
         fileChooser.setInitialDirectory(new File(System.getProperty("user.dir"))); // Starts in the current directory
+        fileChooser.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter("A26 source files", "*.a26"),
+                new FileChooser.ExtensionFilter("Legacy source files", "*.ad04"),
+                new FileChooser.ExtensionFilter("All files", "*"));
         File selectedFile = fileChooser.showOpenDialog(primaryStage);
 
         if (selectedFile != null) {
@@ -487,8 +506,15 @@ public class MachineGUI extends Application {
             followedTrace = null;
             updateSourceExecution();
         });
-        HBox toolbar = new HBox(8, new Label("Source files"), newSourceButton,
-                saveSourceButton, followExecution);
+        diagramMode = new ComboBox<>();
+        diagramMode.setId("source-diagram-mode");
+        diagramMode.getItems().setAll("Source only", "Flowchart", "Nassi–Shneiderman");
+        diagramMode.setValue("Source only");
+        diagramMode.setAccessibleText("Source diagram view");
+        diagramMode.setTooltip(new Tooltip("Show an editable diagram beside the selected source file"));
+        diagramMode.valueProperty().addListener((observable, before, after) -> refreshSelectedDiagram());
+        FlowPane toolbar = new FlowPane(8, 6, new Label("Source files"), newSourceButton,
+                saveSourceButton, followExecution, new Label("Diagram:"), diagramMode);
         toolbar.setAlignment(Pos.CENTER_LEFT);
         toolbar.setPadding(new Insets(6));
 
@@ -508,10 +534,13 @@ public class MachineGUI extends Application {
         executionCallers.setId("execution-callers");
         executionCallers.setPadding(new Insets(0, 8, 0, 8));
 
+        sourceDiagramEditors = new SplitPane(sourceTabs);
+        sourceDiagramEditors.setId("source-diagram-editors");
+        sourceTabs.setMinWidth(180);
         VBox editor = new VBox(toolbar, executionStatusLabel, executionCallers,
-                sourceTabs, sourcePathLabel, sourceStatusLabel);
+                sourceDiagramEditors, sourcePathLabel, sourceStatusLabel);
         editor.setMinWidth(300);
-        VBox.setVgrow(sourceTabs, Priority.ALWAYS);
+        VBox.setVgrow(sourceDiagramEditors, Priority.ALWAYS);
         return editor;
     }
 
@@ -591,9 +620,13 @@ public class MachineGUI extends Application {
             return;
         }
         try {
-            CompilationResult result = sourceWorkspace.compileWithSourceMap();
+            SourceWorkspace.Document main = sourceWorkspace.getMainDocument();
+            SourceDocument mainSnapshot = new SourceDocument(main.getPath(), main.getText());
+            CompilationResult result = sourceWorkspace.compileWithSourceMap(LanguageVersion.STRUCTURED);
+            FlowchartExecution execution = new FlowchartExecution(result, mainSnapshot);
             machine.load(result.bytecode());
             compiledProgram = result;
+            diagramExecution = execution;
             followedTrace = null;
             refreshSourceTabs();
             updateMemoryDisplay();
@@ -606,6 +639,7 @@ public class MachineGUI extends Application {
             showSourceError("Compilation error", exception);
         } finally {
             refreshSourceTabs();
+            revalidateDiagrams(null);
         }
     }
 
@@ -619,6 +653,11 @@ public class MachineGUI extends Application {
                 // TextArea removes carriage returns; preserve their line boundaries.
                 String editorText = document.getText().replace("\r\n", "\n").replace('\r', '\n');
                 SourceEditor editor = new SourceEditor(editorText);
+                editor.setLanguageVersion(LanguageVersion.STRUCTURED);
+                editor.caretPositionProperty().addListener((observable, before, after) -> highlightDiagramCaret(document));
+                editor.focusedProperty().addListener((observable, before, focused) -> {
+                    if (focused) highlightDiagramCaret(document);
+                });
                 tab = new Tab();
                 tab.setContent(editor);
                 tab.setUserData(document);
@@ -631,6 +670,7 @@ public class MachineGUI extends Application {
                         sourceWorkspace.setMainDocument(document);
                     }
                     refreshSourceTabs();
+                    revalidateDiagrams(document);
                     sourceStatusLabel.setText(sourceWorkspace.getMainDocument() == null
                             ? (runTimer == null ? "A main file needs a top-level begin: marker."
                                 : "Stop execution, then double-click a file containing begin:.")
@@ -638,6 +678,7 @@ public class MachineGUI extends Application {
                 });
                 sourceTabs.getTabs().add(tab);
             }
+            ((SourceEditor) tab.getContent()).setLanguageVersion(LanguageVersion.STRUCTURED);
             updateSourceTabTitle(document);
         }
         updateSourceSelection();
@@ -679,6 +720,130 @@ public class MachineGUI extends Application {
         saveSourceButton.setDisable(selected == null || (!selected.isUntitled() && !selected.isModified()));
         sourcePathLabel.setText(selected == null ? "" : sourceDescription(selected));
         sourcePathLabel.setTooltip(selected == null ? null : new Tooltip(sourceDescription(selected)));
+        refreshSelectedDiagram();
+    }
+
+    /** Each file keeps its own views so switching tabs does not discard pending diagram fields. */
+    private final class SourceDiagrams {
+        final FlowchartView flowchart = new FlowchartView();
+        final StructuredDiagramView structured = new StructuredDiagramView();
+
+        SourceDiagrams(SourceWorkspace.Document document) {
+            flowchart.setId("machine-flowchart");
+            structured.setId("machine-structured-diagram");
+            flowchart.setFeatures(EnumSet.allOf(GameFeature.class));
+            flowchart.setLanguageVersion(LanguageVersion.STRUCTURED);
+            structured.setFeatures(EnumSet.allOf(GameFeature.class));
+            flowchart.setValidator(source -> DiagramValidation.validateStandalone(sourceWorkspace, document, source, true));
+            structured.setValidator(source -> DiagramValidation.validateStandalone(sourceWorkspace, document, source, false));
+            flowchart.setOnSourceChanged(source -> applyDiagramSource(document, flowchart, source));
+            structured.setOnSourceChanged(source -> applyDiagramSource(document, structured, source));
+            flowchart.setOnSourceFocused(range -> highlightDiagramSource(document, flowchart, range));
+            structured.setOnSourceFocused(range -> highlightDiagramSource(document, structured, range));
+        }
+
+        void synchronize(SourceWorkspace.Document document) {
+            String source = sourceEditor(document).getText();
+            flowchart.setSource(source);
+            structured.setSource(source);
+        }
+    }
+
+    private SourceEditor sourceEditor(SourceWorkspace.Document document) {
+        Tab tab = sourceEditors.get(document);
+        return tab == null ? null : (SourceEditor) tab.getContent();
+    }
+
+    private void refreshSelectedDiagram() {
+        if (sourceDiagramEditors == null || diagramMode == null) return;
+        SourceWorkspace.Document selected = selectedSourceDocument();
+        String mode = diagramMode.getValue();
+        boolean changed = selected != displayedDiagramDocument || !java.util.Objects.equals(mode, displayedDiagramMode);
+        if (changed && displayedDiagramDocument != null) sourceEditor(displayedDiagramDocument).clearLinkedRange();
+        displayedDiagramDocument = selected;
+        displayedDiagramMode = mode;
+        if (selected == null || mode == null || mode.equals("Source only")) {
+            if (sourceDiagramEditors.getItems().size() > 1) {
+                sourceDiagramEditors.getItems().setAll(sourceTabs);
+                machineWorkspace.setDividerPositions(sourceOnlyDivider);
+            }
+            return;
+        }
+        SourceDiagrams views = sourceDiagrams.computeIfAbsent(selected, SourceDiagrams::new);
+        views.synchronize(selected);
+        Node chosen = mode.equals("Flowchart") ? views.flowchart : views.structured;
+        if (sourceDiagramEditors.getItems().size() != 2 || sourceDiagramEditors.getItems().get(1) != chosen) {
+            boolean alreadyVisible = sourceDiagramEditors.getItems().size() == 2;
+            double divider = alreadyVisible ? sourceDiagramEditors.getDividerPositions()[0] : .34;
+            if (!alreadyVisible) {
+                sourceOnlyDivider = machineWorkspace.getDividerPositions()[0];
+                machineWorkspace.setDividerPositions(.3);
+            }
+            sourceDiagramEditors.getItems().setAll(sourceTabs, chosen);
+            sourceDiagramEditors.setDividerPositions(divider);
+        }
+        if (changed) highlightDiagramCaret(selected);
+        // Preview validation may have opened a newly referenced import buffer.
+        if (sourceWorkspace.getDocuments().size() > sourceEditors.size()) refreshSourceTabs();
+        updateFlowchartExecution();
+    }
+
+    /** Import changes recheck cached diagrams against current buffers without committing pending fields. */
+    private void revalidateDiagrams(SourceWorkspace.Document changed) {
+        sourceDiagrams.forEach((document, views) -> {
+            views.synchronize(document);
+            if (document != changed) {
+                views.flowchart.revalidateSource();
+                views.structured.revalidateSource();
+            }
+            if (isDisplayedDiagram(document, views.flowchart) && !views.flowchart.isSynchronized()
+                    || isDisplayedDiagram(document, views.structured) && !views.structured.isSynchronized()) {
+                sourceEditor(document).clearLinkedRange();
+            }
+        });
+        if (sourceWorkspace != null && sourceWorkspace.getDocuments().size() > sourceEditors.size()) refreshSourceTabs();
+        updateFlowchartExecution();
+    }
+
+    private boolean isDisplayedDiagram(SourceWorkspace.Document document, Node view) {
+        return selectedSourceDocument() == document && sourceDiagramEditors.getItems().contains(view);
+    }
+
+    /** Apply one minimal source edit so ordinary dirty tracking, source mapping and undo remain authoritative. */
+    private void applyDiagramSource(SourceWorkspace.Document document, Node view, String source) {
+        if (!isDisplayedDiagram(document, view)) return;
+        SourceEditor editor = sourceEditor(document);
+        if (!editor.isEditable()) return;
+        String previous = editor.getText();
+        if (previous.equals(source)) return;
+        int start = 0, end = previous.length(), newEnd = source.length();
+        while (start < end && start < newEnd && previous.charAt(start) == source.charAt(start)) ++start;
+        while (end > start && newEnd > start && previous.charAt(end - 1) == source.charAt(newEnd - 1)) { --end; --newEnd; }
+        applyingDiagramSource = true;
+        try { editor.replaceText(start, end, source.substring(start, newEnd)); }
+        finally { applyingDiagramSource = false; }
+    }
+
+    private void highlightDiagramSource(SourceWorkspace.Document document, Node view, IndexRange range) {
+        if (!isDisplayedDiagram(document, view) || range == null) return;
+        SourceEditor editor = sourceEditor(document);
+        SourceDiagrams views = sourceDiagrams.get(document);
+        boolean valid = view == views.flowchart
+                ? views.flowchart.isSynchronized() && views.flowchart.getSource().equals(editor.getText())
+                : views.structured.isSynchronized() && views.structured.getSource().equals(editor.getText());
+        if (!valid || range.getEnd() > editor.getLength()) return;
+        editor.setLinkedRange(range.getStart(), range.getEnd());
+        editor.revealSourceOffset(range.getStart());
+    }
+
+    private void highlightDiagramCaret(SourceWorkspace.Document document) {
+        if (applyingDiagramSource || selectedSourceDocument() != document || sourceDiagramEditors == null) return;
+        SourceDiagrams views = sourceDiagrams.get(document);
+        if (views == null) return;
+        SourceEditor editor = sourceEditor(document);
+        editor.clearLinkedRange();
+        if (sourceDiagramEditors.getItems().contains(views.flowchart)) views.flowchart.highlightSourceOffset(editor.getCaretPosition());
+        else if (sourceDiagramEditors.getItems().contains(views.structured)) views.structured.highlightSourceOffset(editor.getCaretPosition());
     }
 
     private void saveSelectedSource() {
@@ -704,6 +869,7 @@ public class MachineGUI extends Application {
             }
             updateSourceTabTitle(document);
             updateSourceSelection();
+            revalidateDiagrams(null);
             sourceStatusLabel.setText("Saved " + document.getDisplayName() + ".");
             return true;
         } catch (IOException | RuntimeException exception) {
@@ -717,9 +883,9 @@ public class MachineGUI extends Application {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Save source");
         chooser.setInitialDirectory(new File(System.getProperty("user.dir")));
-        chooser.setInitialFileName(document.getDisplayName() + ".ad04");
+        chooser.setInitialFileName(document.getDisplayName() + ".a26");
         chooser.getExtensionFilters().addAll(
-                new FileChooser.ExtensionFilter("Source files", "*.ad04"),
+                new FileChooser.ExtensionFilter("A26 source files", "*.a26"),
                 new FileChooser.ExtensionFilter("All files", "*"));
         File selected = chooser.showSaveDialog(currentStage);
         return selected == null ? null : selected.toPath();
@@ -771,10 +937,18 @@ public class MachineGUI extends Application {
         updateSourceExecution();
     }
 
+    /** Record every machine step, including the transitions inside Step n and Run batches. */
+    private void stepMachine(int count) {
+        if (diagramExecution == null || compiledProgram == null) machine.step(count);
+        else diagramExecution.step(machine, count);
+    }
+
     private void invalidateSourceMapping(String reason) {
         compiledProgram = null;
+        diagramExecution = null;
         followedTrace = null;
         clearSourceMarkers();
+        updateFlowchartExecution();
         executionStatusLabel.setText(reason);
         executionStatusLabel.setTooltip(null);
     }
@@ -823,6 +997,7 @@ public class MachineGUI extends Application {
 
     private void updateSourceExecution() {
         if (compiledProgram == null) {
+            updateFlowchartExecution();
             return;
         }
         // Code and data share memory. A manual edit or a running program can
@@ -841,6 +1016,7 @@ public class MachineGUI extends Application {
             executionStatusLabel.setText((machine.isHalted() ? "Halted" : "No source location")
                     + " at i = " + instructionPointer + " (outside mapped instructions).");
             executionStatusLabel.setTooltip(null);
+            updateFlowchartExecution();
             return;
         }
         SourceLocation location = trace.location();
@@ -855,6 +1031,24 @@ public class MachineGUI extends Application {
             revealSourceLocation(location);
         }
         followedTrace = trace;
+        updateFlowchartExecution();
+    }
+
+    /** Runtime decorations belong to the frozen compiled source, independently of editor focus. */
+    private void updateFlowchartExecution() {
+        sourceDiagrams.forEach((document, views) -> {
+            Flowchart graph = views.flowchart.getGraph();
+            String compiledSource = diagramExecution == null ? null : diagramExecution.source(document.getPath());
+            if (diagramExecution == null || graph == null || compiledSource == null
+                    || document.getPath() == null && document != sourceWorkspace.getMainDocument()
+                    || !compiledSource.equals(views.flowchart.getSource())) {
+                views.flowchart.clearExecutionFrame();
+                views.flowchart.clearRuntimeValues();
+                return;
+            }
+            views.flowchart.setRuntimeValues(diagramExecution.values(document.getPath(), machine));
+            views.flowchart.setExecutionFrame(diagramExecution.frame(graph, document.getPath(), machine), machine.isHalted());
+        });
     }
 
     private void showSourceTrace(SourceTrace trace, boolean halted) {

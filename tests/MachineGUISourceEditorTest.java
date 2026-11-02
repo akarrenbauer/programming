@@ -137,6 +137,8 @@ public final class MachineGUISourceEditorTest {
                 expect(tabs.getTabs().size() == 1 && tabs.getSelectionModel().getSelectedItem() == libraryTab,
                         "a library must open as the selected source tab");
                 expect(libraryOriginal.equals(libraryEditor.getText()), "library source remains editable");
+                expect(((SourceEditor) libraryEditor).getLanguageVersion() == LanguageVersion.STRUCTURED,
+                        "a browsed library uses final grammar highlighting before any main is loaded");
                 expect(compile.isDisabled() && !libraryTab.getText().contains("(main)"),
                         "a file without begin must not become the main program");
                 expect(memoryBefore.equals(memory()) && machine.getStepCounter() == 0,
@@ -171,6 +173,10 @@ public final class MachineGUISourceEditorTest {
                         "opening another program must not save previous edits");
                 expect(mainEditor instanceof SourceEditor && libraryEditor instanceof SourceEditor,
                         "main and import tabs must both use syntax-highlighting editors");
+                for (Tab tab : tabs.getTabs()) {
+                    expect(((SourceEditor) tab.getContent()).getLanguageVersion() == LanguageVersion.STRUCTURED,
+                            "new, imported, and retained source tabs all use the final grammar");
+                }
                 expect(mainOriginal.equals(mainEditor.getText()), "main editor must show file contents");
                 expect(libraryOriginal.equals(libraryEditor.getText()), "import editor must show file contents");
                 expect(!document(mainTab).isModified() && !document(libraryTab).isModified(), "opened files start clean");
@@ -198,6 +204,45 @@ public final class MachineGUISourceEditorTest {
                     editor.setStyle(styleBefore);
                 }
                 tabs.getSelectionModel().select(mainTab);
+            });
+
+            checkFx("Enter preserves indentation with one undo and invalidates source tracking", () -> {
+                compile.fire();
+                tabs.getSelectionModel().select(libraryTab);
+                stage.getScene().getRoot().applyCss();
+                stage.getScene().getRoot().layout();
+                libraryEditor.requestFocus();
+                SourceEditor source = (SourceEditor) libraryEditor;
+                expect(source.getExecutionRange() != null, "compiled import starts with an execution marker");
+                int insertion = libraryOriginal.indexOf("INC value;") + "INC value;".length();
+                source.positionCaret(insertion);
+                List<Integer> before = memory();
+                int stepsBefore = machine.getStepCounter();
+                Event.fireEvent(source, new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.ENTER,
+                        false, false, false, false));
+                Event.fireEvent(source, new KeyEvent(KeyEvent.KEY_RELEASED, "", "", KeyCode.ENTER,
+                        false, false, false, false));
+                String expected = libraryOriginal.substring(0, insertion) + "\n    "
+                        + libraryOriginal.substring(insertion);
+                expect(expected.equals(source.getText()) && expected.equals(document(libraryTab).getText()),
+                        "Enter inserts the line indentation into both editor and workspace buffer");
+                expect(source.getCaretPosition() == insertion + 5,
+                        "caret follows the newline and copied indentation");
+                expect(document(libraryTab).isModified() && libraryTab.getText().contains("*") && !save.isDisabled(),
+                        "indented newline marks the import as an unsaved edit");
+                expect(source.getExecutionRange() == null && ((SourceEditor) mainEditor).getExecutionRange() == null,
+                        "source edit clears compiled execution markers");
+                expect(before.equals(memory()) && stepsBefore == machine.getStepCounter(),
+                        "source editing preserves the running machine image");
+                expect(libraryOriginal.equals(Files.readString(libraryPath)), "Enter never saves source implicitly");
+                source.undo();
+                expect(libraryOriginal.equals(source.getText()) && libraryOriginal.equals(document(libraryTab).getText()),
+                        "one native undo restores both newline and indentation");
+                expect(!document(libraryTab).isModified() && !libraryTab.getText().contains("*") && save.isDisabled(),
+                        "undo restores the saved baseline and clean tab state");
+                expect(source.getExecutionRange() == null, "undo does not revive stale source tracking");
+                compile.fire();
+                expect(source.getExecutionRange() != null, "compilation restores the imported execution marker");
             });
 
             checkFx("Compile uses unsaved buffers while an import tab is selected", () -> {

@@ -92,11 +92,16 @@ public final class SourceWorkspace {
 
     /** Compiles the buffers and retains locations in the exact displayed source snapshots. */
     public CompilationResult compileWithSourceMap() throws IOException, ParseException {
+        return compileWithSourceMap(LanguageVersion.STRUCTURED);
+    }
+
+    /** The selected language profile applies to both the main buffer and its imports. */
+    public CompilationResult compileWithSourceMap(LanguageVersion version) throws IOException, ParseException {
         Document main = getMainDocument();
         if (main == null) {
             throw new ParseException("No main program selected. Select a source document with a top-level begin: marker.");
         }
-        return Compiler.compileWithSourceMap(source(main), path -> source(loadDocument(path)));
+        return Compiler.compileWithSourceMap(source(main), path -> source(loadDocument(path)), System.out, version);
     }
 
     private static SourceDocument source(Document document) {

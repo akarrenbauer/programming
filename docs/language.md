@@ -168,3 +168,32 @@ Public programs should use `if`, `while`, and `do`/`while`. Labels and `JNZ` are
 compiler and library macro implementations; labels are intentionally not macro arguments. Raw label
 and `JNZ` syntax remains accepted by the parser, so this public/internal boundary is currently a
 project convention, not an enforced restriction.
+
+Label names follow the identifier rules. Reserved keywords cannot name labels.
+
+## Language versions
+
+One compiler supports two profiles:
+
+| Version | Meaning of `do` | `do { ... } while (...);` |
+| --- | --- | --- |
+| **Before do/while** | Ordinary identifier, including as a label, variable, macro, or parameter | Unavailable |
+| **Structured** (default) | Reserved loop keyword; never a label or identifier | Available |
+
+The other language rules are shared. These profiles model the single keyword
+transition used in the teaching exercises; the game controls its other syntax
+unlocks separately. A compilation applies its selected profile to both the main
+source and all imports, including both compiler passes.
+
+The Machine GUI always uses the final **Structured** grammar for compilation
+and syntax coloring in every source tab, including imports and unnamed drafts.
+It has no language-version selector. An earlier `do:` example must be rewritten
+as a structured loop, or its label renamed to a non-keyword, before it can
+compile in the simulator. Rejected source stays editable and leaves the previous
+machine image unchanged.
+
+The game selects these versions automatically. Earlier exercises retain their
+original version when revisited. The rewrite exercise checks the Structured
+solution, while Debug can inspect either the original earlier program or the
+rewritten Structured program. A program mixing `do:` with a structured `do`
+loop is invalid in both versions.

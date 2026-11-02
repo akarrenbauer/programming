@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import machine.Machine;
+import machine.LanguageVersion;
 import machine.CompilationResult;
 import machine.ParseException;
 import machine.SourceWorkspace;
@@ -449,6 +450,27 @@ public class SourceWorkspaceTest {
             expect(imported, workspace.getDocuments().get(1), "buffer identity survives deletion");
         });
 
+        check("selected language version applies to unsaved buffers and imports without changing source", () -> {
+            Path directory = directory();
+            Path library = write(directory.resolve("early.ad04"), "void clear(do) {\nagain: DEC do;\nJNZ do again;\n}\n");
+            Path main = write(directory.resolve("early-main.ad04"), importLine(library)
+                    + "var x=2; begin: clear(x); HALT;\n");
+            SourceWorkspace workspace = SourceWorkspace.open(main);
+            Document document = workspace.getMainDocument();
+            document.setText(document.getText().replace("x=2", "x=5"));
+            String source = document.getText();
+            CompilationResult compiled = compileMapped(workspace, LanguageVersion.BEFORE_DO_WHILE);
+            Machine machine = new Machine();
+            machine.load(compiled.bytecode());
+            machine.step(100);
+            expect(0, machine.get(1), "early parameter is an ordinary identifier through both passes");
+            expect(true, compiled.sources().values().stream().anyMatch(text -> text.contains("clear(do)")), "import source mapping survives profile selection");
+            expectFailure(ParseException.class, () -> compileMapped(workspace));
+            expect(source, document.getText(), "compilation profile never edits the buffer");
+            expect(true, document.isModified(), "existing dirty state survives profile changes");
+            expect(true, machine.isHalted(), "the selected profile produced an executable image");
+        });
+
         check("recompile discovers new imports in opening order", () -> {
             Path directory = directory();
             Path first = write(directory.resolve("first.ad04"), "INC value;\n");
@@ -622,10 +644,14 @@ public class SourceWorkspaceTest {
     }
 
     private static CompilationResult compileMapped(SourceWorkspace workspace) throws Exception {
+        return compileMapped(workspace, LanguageVersion.STRUCTURED);
+    }
+
+    private static CompilationResult compileMapped(SourceWorkspace workspace, LanguageVersion version) throws Exception {
         PrintStream previousOutput = System.out;
         try (PrintStream compilerOutput = new PrintStream(new ByteArrayOutputStream())) {
             System.setOut(compilerOutput);
-            return workspace.compileWithSourceMap();
+            return workspace.compileWithSourceMap(version);
         } finally {
             System.setOut(previousOutput);
         }
