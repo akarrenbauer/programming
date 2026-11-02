@@ -109,6 +109,7 @@ public class LanguageGame extends Application {
     private boolean selecting;
     private boolean loading;
     private boolean applyingDiagramSource;
+    private final EditorZoom editorZoom = new EditorZoom();
     private Stage stage;
     private Function<GameTaskLanguage, String> recoveryNotice;
     private Function<GameTaskLanguage, String> feedbackMessage = language -> GameMessages.text(language, FIRST_PUZZLE);
@@ -151,6 +152,7 @@ public class LanguageGame extends Application {
         saveDelay.setOnFinished(event -> persist());
         stage.setTitle("Language Game");
         stage.setScene(new Scene(root, 1280, 860));
+        editorZoom.install(stage.getScene());
         stage.setMinWidth(1000);
         stage.setMinHeight(720);
         stage.setOnCloseRequest(event -> {
@@ -352,6 +354,7 @@ public class LanguageGame extends Application {
         rewardBanner.setMinHeight(Region.USE_PREF_SIZE);
 
         editor = new SourceEditor("");
+        editor.zoomFactorProperty().bind(editorZoom.factorProperty());
         editor.setId("game-editor");
         editor.setAccessibleText("Your solution program");
         editorVersion = new Label();
@@ -359,9 +362,11 @@ public class LanguageGame extends Application {
         editorVersion.setStyle("-fx-text-fill: #567080; -fx-padding: 3 6;");
         editorVersion.setWrapText(true);
         diagram = new StructuredDiagramView();
+        diagram.zoomFactorProperty().bind(editorZoom.factorProperty());
         diagram.setId("game-diagram");
         diagram.setOnSourceChanged(this::applyDiagramSource);
         flowchart = new FlowchartView();
+        flowchart.zoomFactorProperty().bind(editorZoom.factorProperty());
         flowchart.setId("game-flowchart");
         flowchart.setLanguageVersionResolver(source -> currentIndex < 0 ? LanguageVersion.BEFORE_DO_WHILE
                 : GameLanguage.editingVersionFor(current(), progress.features(), source));
@@ -467,7 +472,9 @@ public class LanguageGame extends Application {
         hintLabel = new Label();
         hintLabel.setId("game-hint");
         hintLabel.setWrapText(true);
-        hintLabel.managedProperty().bind(hintLabel.textProperty().isNotEmpty());
+        // An unmanaged but visible label retains its old hit area over the buttons.
+        hintLabel.visibleProperty().bind(hintLabel.textProperty().isNotEmpty());
+        hintLabel.managedProperty().bind(hintLabel.visibleProperty());
         hintLabel.setStyle("-fx-text-fill: #66511b;");
         feedback = new Label(feedbackMessage.apply(progress.taskLanguage()));
         feedback.setId("game-feedback");

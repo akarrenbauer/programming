@@ -196,6 +196,15 @@ Current-value annotations are rendered only in the flowchart,
 without changing source text, editable fields, or native undo history. These decorations
 coexist with source/diagram focus linking and source execution markers.
 
+`EditorZoom` handles the application shortcuts and shares one zoom factor among
+the source and diagram views. `DiagramZoomPane` scales existing diagram nodes
+and their scroll extents, preserving pending edits and pointer targets. Source
+editors resize their native font so syntax and execution markers stay aligned.
+[DiagramZoomPaneTest](../tests/DiagramZoomPaneTest.java) checks scaled geometry,
+scroll anchors, focus, and revealing offscreen elements.
+[EditorZoomTest](../tests/EditorZoomTest.java) exercises shortcuts in both
+applications, including new tabs, mode changes, and unchanged editor contents.
+
 [MachineGUIExecutionDiagramTest](../tests/MachineGUIExecutionDiagramTest.java)
 checks the simulator's actual Step, Step n, and Run controls, loop branches,
 HALT, current values, and stale-state invalidation.
@@ -410,6 +419,9 @@ input substitution, cancellation, invalid memory access, and compilation bounds.
 through the GUI and checks failed submissions, cancellation, persistence, and
 recovery. Its header gives JavaFX build/run instructions; tests use temporary
 profiles and a private display.
+[LanguageGameButtonHitTest](../tests/LanguageGameButtonHitTest.java) clicks the
+solution button's text, centre, and edges with a real pointer, including after
+hints, task changes, and reset, to catch invisible labels intercepting input.
 
 [GameMessagesTest](../tests/GameMessagesTest.java) and
 [GameDiagnosticsTest](../tests/GameDiagnosticsTest.java) check English/German

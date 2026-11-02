@@ -381,6 +381,41 @@ public final class SourceEditorTest {
                         "native text and highlights must share the scrolled content");
             });
 
+            check("font zoom preserves source selection undo and independent marker geometry", () -> {
+                String original = geometrySource().repeat(12);
+                onFx(() -> {
+                    show(original); editor.appendText("// pending\n");
+                    editor.selectRange(18, 5); editor.requestFocus();
+                    editor.setExecutionRange(5, 18, false); editor.setLinkedRange(5, 18); layout();
+                    editor.setScrollTop(180); editor.setScrollLeft(80); layout();
+                    expect(editor.getScrollTop() == 180 && editor.getScrollLeft() == 80, "zoom fixture is scrolled before changing font");
+                    editor.setZoomFactor(1.5); editor.setZoomFactor(2); layout();
+                });
+                awaitLayoutPulse();
+                onFx(() -> {
+                expect(Math.abs(editor.getFont().getSize() - 26) < .01, "zoom doubles the actual native font");
+                expect(editor.getAnchor() == 18 && editor.getCaretPosition() == 5
+                                && stage.getScene().getFocusOwner() == editor, "zoom retains selection direction and keyboard focus");
+                expect(editor.getText().equals(original + "// pending\n") && editor.isUndoable(), "zoom never edits source or replaces undo history");
+                expect(Math.abs(editor.getScrollTop() - 360) < 1 && Math.abs(editor.getScrollLeft() - 160) < 1,
+                        "font zoom retains logical scroll position: " + editor.getScrollTop() + "," + editor.getScrollLeft());
+                expectAligned(); expectMarkerRange(executionMarker("execution-current"), new IndexRange(5, 18));
+                expect(editor.getLinkedRange().equals(new IndexRange(5, 18)) && !linkedHighlights().getChildren().isEmpty(), "linked source lines remain decorated");
+                editor.undo(); expect(editor.getText().equals(original), "the next undo reverses the user's edit, not zoom");
+                });
+            });
+
+            checkFx("font zoom limits and repeated zoom do not grow styles or change language", () -> {
+                show(EXAMPLE); editor.setLanguageVersion(LanguageVersion.BEFORE_DO_WHILE);
+                editor.setZoomFactor(1.5); layout(); String style = editor.getStyle();
+                for (int i = 0; i < 20; ++i) { editor.setZoomFactor(2); editor.setZoomFactor(1.5); }
+                layout(); expect(editor.getStyle().equals(style), "repeated font changes keep CSS stable");
+                expect(editor.getLanguageVersion() == LanguageVersion.BEFORE_DO_WHILE && editor.getText().equals(EXAMPLE), "language profile and source survive zoom");
+                editor.zoomFactorProperty().set(-1); layout(); expect(editor.getZoomFactor() == .5 && editor.getFont().getSize() == 6.5, "minimum font zoom");
+                editor.setZoomFactor(20); layout(); expect(editor.getZoomFactor() == 3 && editor.getFont().getSize() == 39, "maximum font zoom");
+                editor.setZoomFactor(Double.POSITIVE_INFINITY); layout(); expect(editor.getZoomFactor() == 1 && editor.getFont().getSize() == 13, "nonfinite font zoom resets to default");
+            });
+
             checkFx("native selection and caret render above a mouse-transparent overlay", () -> {
                 show(EXAMPLE);
                 editor.requestFocus();

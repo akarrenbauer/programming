@@ -13,6 +13,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import javafx.application.Platform;
+import javafx.beans.property.DoubleProperty;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.AccessibleAction;
@@ -51,6 +52,7 @@ public final class StructuredDiagramView extends BorderPane {
     private static final String DAMAGED = "-fx-border-color: #bd352d; -fx-border-width: 2; -fx-background-color: #fff0ee;";
     private final Label status = new Label();
     private final VBox diagrams = new VBox(10);
+    private final DiagramZoomPane zoomPane = new DiagramZoomPane(diagrams);
     private final ScrollPane scroll = new ScrollPane(diagrams);
     private final DiagramToolbox toolbox = new DiagramToolbox();
     private final Map<StructuredDiagram.Node, TextInputControl> fields = new IdentityHashMap<>();
@@ -99,7 +101,7 @@ public final class StructuredDiagramView extends BorderPane {
         setTop(header);
         diagrams.setPadding(new Insets(8));
         diagrams.setFillWidth(true);
-        scroll.setFitToWidth(true);
+        zoomPane.installIn(scroll);
         scroll.setStyle("-fx-background: #f3f6fa; -fx-background-color: #f3f6fa;");
         setCenter(scroll);
         resetContext();
@@ -176,6 +178,9 @@ public final class StructuredDiagramView extends BorderPane {
     public String getSource() { return source == null ? "" : source; }
     public boolean isSynchronized() { return synchronizedSource; }
     public String getStatusText() { return status.getText(); }
+    public DoubleProperty zoomFactorProperty() { return zoomPane.zoomFactorProperty(); }
+    public double getZoomFactor() { return zoomPane.getZoomFactor(); }
+    public void setZoomFactor(double value) { zoomPane.setZoomFactor(value); }
 
     /** Language changes update feedback without discarding pending edits or recreating controls. */
     public void setTaskLanguage(GameTaskLanguage language) {
@@ -307,15 +312,7 @@ public final class StructuredDiagramView extends BorderPane {
         StructuredDiagram snapshot = document; long revision = highlightRevision;
         Platform.runLater(() -> {
             if (document != snapshot || !synchronizedSource || highlightRevision != revision || highlightedElement != element) return;
-            diagrams.applyCss(); diagrams.layout();
-            if (element.getScene() == null) return;
-            javafx.geometry.Bounds bounds = diagrams.sceneToLocal(element.localToScene(element.getBoundsInLocal()));
-            double viewport = scroll.getViewportBounds().getHeight(), extent = diagrams.getLayoutBounds().getHeight() - viewport;
-            if (extent <= 0 || viewport <= 0) return;
-            double current = scroll.getVvalue() * extent, next = current;
-            if (bounds.getMinY() < current || bounds.getHeight() > viewport) next = bounds.getMinY() - 8;
-            else if (bounds.getMaxY() > current + viewport) next = bounds.getMaxY() - viewport + 8;
-            scroll.setVvalue(Math.max(0, Math.min(1, next / extent)));
+            zoomPane.reveal(element);
         });
     }
 

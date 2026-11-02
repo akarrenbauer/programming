@@ -590,6 +590,27 @@ public final class FlowchartViewTest {
                 draft.setText("DEC n;");
                 require(!view.getStatusText().contains("pending") && changes.isEmpty(), "restoring the original text immediately restores synchronized status");
             });
+            check("diagram zoom scales shapes and hit areas without changing focused drafts or source spans", () -> {
+                reset(LOOP, Set.of(), LanguageVersion.BEFORE_DO_WHILE);
+                view.setZoomFactor(1); view.applyCss(); view.layout();
+                TextInputControl draft = field("DEC n;"); draft.requestFocus(); draft.setText("INC n;"); draft.selectRange(1, 4);
+                Node decision = view.lookup(".flowchart-decision"), handle = view.lookup(".flowchart-jump-handle");
+                double decisionWidth = decision.localToScene(decision.getBoundsInLocal()).getWidth();
+                double handleWidth = handle.localToScene(handle.getBoundsInLocal()).getWidth();
+                IndexRange linked = view.getHighlightedRange();
+                view.setZoomFactor(1.5); view.applyCss(); view.layout();
+                require(Math.abs(decision.localToScene(decision.getBoundsInLocal()).getWidth() - decisionWidth * 1.5) < .1
+                        && Math.abs(handle.localToScene(handle.getBoundsInLocal()).getWidth() - handleWidth * 1.5) < .1,
+                        "shape text and arrowhead pickup coordinates scale together");
+                require(field("INC n;") == draft && stage.getScene().getFocusOwner() == draft && draft.getSelection().equals(new IndexRange(1, 4))
+                        && linked.equals(view.getHighlightedRange()), "zoom retains field identity, pending text, focus, selection and source mapping");
+                require(view.getSource().equals(LOOP) && changes.isEmpty(), "zoom introduces no source edit or undo transaction");
+                ScrollPane scroll = (ScrollPane) view.lookup(".scroll-pane");
+                require(scroll.getContent().getLayoutBounds().getWidth() > scroll.getViewportBounds().getWidth(), "scaled graph has a real horizontal scroll extent");
+                view.setTaskLanguage(GameTaskLanguage.GERMAN); view.setSource(LOOP);
+                require(view.getZoomFactor() == 1.5 && field("INC n;") == draft, "language/source echo keep zoom and draft");
+                view.setZoomFactor(1); view.applyCss(); view.layout();
+            });
             String screenshot = System.getProperty("flowchart.screenshot");
             if (screenshot != null) onFx(() -> {
                 reset(LOOP, Set.of(), LanguageVersion.BEFORE_DO_WHILE);

@@ -14,6 +14,7 @@ import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.IndexRange;
 import javafx.scene.control.TextInputControl;
 import javafx.scene.input.DragEvent;
 import javafx.scene.input.KeyCode;
@@ -92,6 +93,63 @@ public final class FlowchartDragTest {
                     require(graph.edges().stream().anyMatch(edge -> edge.from() == edge.to() && edge.label().equals("true")),
                             "inserted jump has the expected backward execution edge");
                     require(view.lookupAll(".flowchart-decision").size() == 1, "real drop renders its decision diamond");
+                });
+            });
+
+            check("zoomed flowchart targets accept real pointer drops and keep source focus offsets", () -> {
+                String starter = "// Scale the drawing, not the program.\nvar n=0;\nbegin:\nHALT;\n";
+                AtomicReference<IndexRange> focused = new AtomicReference<>();
+                AtomicReference<TextInputControl> inserted = new AtomicReference<>();
+                onFx(() -> {
+                    reset(starter, Set.of(), LanguageVersion.BEFORE_DO_WHILE);
+                    view.setZoomFactor(1.5);
+                    view.setOnSourceFocused(focused::set);
+                    stage.getScene().getRoot().applyCss(); stage.getScene().getRoot().layout();
+                    Node target = view.lookup("#flowchart-main-gap");
+                    Bounds bounds = target.localToScreen(target.getBoundsInLocal());
+                    require(bounds.getHeight() >= 35, "the 24px insertion target scales with the drawing");
+                });
+                drag("flowchart-tool-rectangle", "flowchart-main-gap");
+                onFx(() -> {
+                    require(Math.abs(view.getZoomFactor() - 1.5) < .001, "source rebuild retains zoom");
+                    require(view.getSource().contains("NOP;") && view.getSource().startsWith("// Scale the drawing, not the program.\nvar n=0;"),
+                            "zoomed drag inserts only the chosen instruction and preserves setup");
+                    TextInputControl field = view.lookupAll(".flowchart-edit").stream()
+                            .filter(TextInputControl.class::isInstance).map(TextInputControl.class::cast)
+                            .filter(control -> control.getText().equals("NOP;")).findFirst().orElseThrow();
+                    inserted.set(field);
+                });
+                click(inserted.get());
+                onFx(() -> {
+                    IndexRange range = focused.get();
+                    int start = view.getSource().indexOf("NOP;");
+                    require(range != null && range.getStart() == start && range.getEnd() == start + 4,
+                            "clicking the scaled instruction reports exact unscaled source offsets");
+                    require(inserted.get().isFocused(), "the visible scaled field receives pointer focus");
+                    view.setOnSourceFocused(rangeIgnored -> { });
+                });
+            });
+
+            check("zoomed jump handles move labels through transformed destination hit areas", () -> {
+                String source = "var n=1;\nbegin:\nhome: NOP;\nJNZ n home;\nHALT;\n";
+                AtomicReference<Node> handle = new AtomicReference<>(), destination = new AtomicReference<>();
+                AtomicInteger target = new AtomicInteger();
+                onFx(() -> {
+                    reset(source, Set.of(), LanguageVersion.BEFORE_DO_WHILE);
+                    view.setZoomFactor(1.5);
+                    Flowchart graph = graph();
+                    target.set(graph.vertices().stream().filter(vertex -> vertex.owner() != null
+                            && vertex.owner().editText().equals("HALT;")).findFirst().orElseThrow().id());
+                    handle.set(head(jump(graph))); destination.set(headTarget(target.get()));
+                });
+                drag(handle.get(), destination.get(), TransferMode.MOVE, true, true, false);
+                onFx(() -> {
+                    Flowchart graph = graph();
+                    require(jump(graph).to() == target.get() && graph.labels().get("home") == target.get(),
+                            "scaled head and destination relocate the original target label");
+                    require(view.getSource().contains("JNZ n home;") && graph.vertex(target.get()).owner().editText().equals("HALT;"),
+                            "scaled drag changes label ownership without rewriting the jump or target instruction");
+                    require(Math.abs(view.getZoomFactor() - 1.5) < .001, "label relocation keeps zoom");
                 });
             });
 
@@ -519,6 +577,7 @@ public final class FlowchartDragTest {
 
     private static void reset(String source, Set<GameFeature> features, LanguageVersion version) {
         view.resetContext();
+        view.setZoomFactor(1);
         view.setDisable(false);
         view.setFeatures(features);
         view.setLanguageVersion(version);

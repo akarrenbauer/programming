@@ -83,6 +83,7 @@ public class MachineGUI extends Application {
     private SourceWorkspace.Document displayedDiagramDocument;
     private String displayedDiagramMode;
     private boolean applyingDiagramSource;
+    private final EditorZoom editorZoom = new EditorZoom();
     private final List<Control> controlsDisabledWhileRunning = new ArrayList<>();
     public static void main(String[] args) {
         launch(args);
@@ -363,6 +364,7 @@ public class MachineGUI extends Application {
                 openButton, compileButton, resetButton));
 
         Scene scene = new Scene(vbox, 1100, 650);
+        editorZoom.install(scene);
         scene.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
             if (event.getCode() == KeyCode.HOME && !event.isControlDown()
                     && !event.isAltDown() && !event.isMetaDown() && !event.isShiftDown()
@@ -653,6 +655,7 @@ public class MachineGUI extends Application {
                 // TextArea removes carriage returns; preserve their line boundaries.
                 String editorText = document.getText().replace("\r\n", "\n").replace('\r', '\n');
                 SourceEditor editor = new SourceEditor(editorText);
+                editor.zoomFactorProperty().bind(editorZoom.factorProperty());
                 editor.setLanguageVersion(LanguageVersion.STRUCTURED);
                 editor.caretPositionProperty().addListener((observable, before, after) -> highlightDiagramCaret(document));
                 editor.focusedProperty().addListener((observable, before, focused) -> {
@@ -729,6 +732,8 @@ public class MachineGUI extends Application {
         final StructuredDiagramView structured = new StructuredDiagramView();
 
         SourceDiagrams(SourceWorkspace.Document document) {
+            flowchart.zoomFactorProperty().bind(editorZoom.factorProperty());
+            structured.zoomFactorProperty().bind(editorZoom.factorProperty());
             flowchart.setId("machine-flowchart");
             structured.setId("machine-structured-diagram");
             flowchart.setFeatures(EnumSet.allOf(GameFeature.class));

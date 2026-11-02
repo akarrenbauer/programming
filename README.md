@@ -204,6 +204,14 @@ follows it. Other labels at either location stay in place. If arrows share a
 junction, select the desired decision first. Moving `begin` also moves program
 startup. Junction dots sit halfway along the incoming connector between blocks.
 Use the pencil button beneath a diamond to edit its full JNZ instruction.
+Overlapping jump routes use separate lanes; an enclosing jump runs farther to
+the right than the jumps inside it.
+
+In MachineGUI and the Language Game, **Ctrl++** and **Ctrl+-** enlarge or shrink
+the source text and diagrams together (Command on macOS). Shapes, arrows, and
+editing targets scale with their text. Zoom ranges from 50% to 300% and stays
+the same when you switch files, levels, or diagram modes. Zooming preserves
+pending edits, selections, and undo history.
 
 **Compile** uses the current editor contents without saving them. New imports
 open when compilation reaches them, using the compiler's existing paths relative

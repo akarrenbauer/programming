@@ -2,6 +2,7 @@ package machine;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -14,6 +15,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import javafx.application.Platform;
+import javafx.beans.property.DoubleProperty;
 import javafx.event.ActionEvent;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -66,6 +68,7 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
     private final Label status = new Label();
     private final VBox content = new VBox(8);
     private final ScrollPane scroll = new ScrollPane(content);
+    private final DiagramZoomPane zoomPane = new DiagramZoomPane(content);
     private final FlowPane palette = new FlowPane(5, 4);
     private final Map<Tool, VBox> tools = new LinkedHashMap<>();
     private final List<Field> fields = new ArrayList<>();
@@ -124,7 +127,7 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
         header.setPadding(new Insets(7));
         setTop(header);
         content.setPadding(new Insets(8));
-        scroll.setFitToWidth(true);
+        zoomPane.installIn(scroll);
         scroll.setStyle("-fx-background: #f3f6fa; -fx-background-color: #f3f6fa;");
         setCenter(scroll);
         refreshTools();
@@ -153,6 +156,9 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
     }
 
     public String getSource() { return source == null ? "" : source; }
+    public DoubleProperty zoomFactorProperty() { return zoomPane.zoomFactorProperty(); }
+    public double getZoomFactor() { return zoomPane.getZoomFactor(); }
+    public void setZoomFactor(double value) { zoomPane.setZoomFactor(value); }
     public boolean isSynchronized() { return synchronizedSource; }
     public String getStatusText() { return status.getText(); }
 
@@ -343,15 +349,7 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
         long revision = highlightRevision;
         Platform.runLater(() -> {
             if (document != snapshot || !synchronizedSource || highlightRevision != revision || highlightedElement != element) return;
-            content.applyCss(); content.layout();
-            if (element.getScene() == null) return;
-            javafx.geometry.Bounds bounds = content.sceneToLocal(element.localToScene(element.getBoundsInLocal()));
-            double viewport = scroll.getViewportBounds().getHeight(), extent = content.getLayoutBounds().getHeight() - viewport;
-            if (extent <= 0 || viewport <= 0) return;
-            double current = scroll.getVvalue() * extent, next = current;
-            if (bounds.getMinY() < current || bounds.getHeight() > viewport) next = bounds.getMinY() - 8;
-            else if (bounds.getMaxY() > current + viewport) next = bounds.getMaxY() - viewport + 8;
-            scroll.setVvalue(Math.max(0, Math.min(1, next / extent)));
+            zoomPane.reveal(element);
         });
     }
 
@@ -907,10 +905,20 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
         private final Map<ShapeBox, List<Drop>> extra = new IdentityHashMap<>();
         private final Map<Integer, Junction> junctions = new LinkedHashMap<>();
         private final Map<Integer, Button> details = new LinkedHashMap<>();
+        private final Map<Flowchart.Edge, Integer> jumpLanes;
+        private final Map<Flowchart.Edge, Integer> leftLanes;
+        private final Map<Flowchart.Edge, Integer> rightLanes;
+        private final double jumpLaneStart;
         private int selectedJump = -1;
         GraphPane(StructuredDiagram snapshot, Flowchart flow) {
             this.snapshot = snapshot; this.flow = flow;
-            setMinWidth(420); setPrefWidth(460);
+            jumpLanes = routeLanes(flow.edges().stream().filter(flow::isJumpRoute).toList());
+            leftLanes = routeLanes(flow.edges().stream().filter(edge -> !flow.isJumpRoute(edge) && !direct(edge) && left(edge)).toList());
+            rightLanes = routeLanes(flow.edges().stream().filter(edge -> !flow.isJumpRoute(edge) && !direct(edge) && !left(edge)).toList());
+            jumpLaneStart = Math.max(180, laneExtent(rightLanes, 160)) + 24;
+            double extent = Math.max(laneExtent(leftLanes, 160), Math.max(laneExtent(rightLanes, 160), laneExtent(jumpLanes, jumpLaneStart)));
+            double width = Math.max(420, 2 * (extent + 24));
+            setMinWidth(width); setPrefWidth(Math.max(460, width));
             for (Flowchart.Edge edge : flow.edges()) {
                 EdgeDrawing drawing = new EdgeDrawing(edge); edges.add(drawing);
                 getChildren().addAll(drawing.path, drawing.arrow, drawing.label);
@@ -945,6 +953,41 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
                 if (drawing.handle != null) bindSourceFocus(snapshot, drawing.handle, box, range);
                 bindSourceFocus(snapshot, drawing.path, box, range);
             }
+        }
+        private boolean markedTarget(int id) {
+            return flow.canTarget(id) && (!flow.vertex(id).owner().labels().isBlank()
+                    || flow.edges().stream().anyMatch(edge -> flow.isJumpRoute(edge) && edge.to() == id));
+        }
+        private boolean direct(Flowchart.Edge edge) {
+            return !flow.isJumpRoute(edge) && edge.to() == edge.from() + 1
+                    && !(edge.label().equals("false") && flow.jumpInfo(edge.from()) == null
+                    && flow.edges().stream().filter(other -> other.from() == edge.from() && other.to() == edge.to()).count() > 1);
+        }
+        private boolean left(Flowchart.Edge edge) {
+            return !flow.isJumpRoute(edge) && !markedTarget(edge.to()) && (edge.to() <= edge.from() || edge.label().equals("true"));
+        }
+        private Map<Flowchart.Edge, Integer> routeLanes(List<Flowchart.Edge> routes) {
+            List<Flowchart.Edge> ordered = new ArrayList<>(routes);
+            ordered.sort(Comparator.comparingInt((Flowchart.Edge edge) -> Math.abs(edge.to() - edge.from()))
+                    .thenComparingInt(edge -> Math.min(edge.from(), edge.to()))
+                    .thenComparingInt(Flowchart.Edge::from).thenComparingInt(Flowchart.Edge::to).thenComparing(Flowchart.Edge::label));
+            Map<Flowchart.Edge, Integer> allocated = new LinkedHashMap<>();
+            for (Flowchart.Edge edge : ordered) {
+                int first = Math.min(edge.from(), edge.to()), last = Math.max(edge.from(), edge.to());
+                int lane = 0;
+                Set<Integer> occupied = new HashSet<>();
+                for (Map.Entry<Flowchart.Edge, Integer> previous : allocated.entrySet()) {
+                    int from = Math.min(previous.getKey().from(), previous.getKey().to()), to = Math.max(previous.getKey().from(), previous.getKey().to());
+                    if (from <= last && first <= to) occupied.add(previous.getValue());
+                    if (first <= from && to <= last && (first < from || to < last)) lane = Math.max(lane, previous.getValue() + 1);
+                }
+                while (occupied.contains(lane)) ++lane;
+                allocated.put(edge, lane);
+            }
+            return allocated;
+        }
+        private double laneExtent(Map<Flowchart.Edge, Integer> lanes, double first) {
+            return lanes.isEmpty() ? 0 : first + lanes.values().stream().mapToInt(Integer::intValue).max().orElse(0) * 18;
         }
         /** Each source sequence has exactly n+1 boundaries, regardless of how many graph vertices its children use. */
         private void sequenceDrops(StructuredDiagram.Sequence sequence, StructuredDiagram.Node owner, boolean alternative) {
@@ -1065,7 +1108,7 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
             }
             positionLoopEntries();
             for (Junction junction : junctions.values()) junction.layout(center);
-            for (int i = 0; i < edges.size(); i++) edges.get(i).layout(center, i);
+            for (EdgeDrawing edge : edges) edge.layout(center);
         }
         private void positionLoopEntries() {
             for (int first = 1; first < vertices.size() - 1; ++first) {
@@ -1118,7 +1161,7 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
             Junction(Flowchart.Vertex vertex) {
                 this.vertex = vertex;
                 Flowchart.SourceSpan prefix = flow.labelPrefix(vertex.owner());
-                marked = !vertex.owner().labels().isBlank() || flow.edges().stream().anyMatch(edge -> flow.isJumpRoute(edge) && edge.to() == vertex.id());
+                marked = markedTarget(vertex.id());
                 circle.setId("flowchart-junction-" + vertex.id()); circle.setUserData(vertex.id()); circle.setMouseTransparent(true); circle.setVisible(marked);
                 if (marked) circle.getStyleClass().add("flowchart-junction");
                 stem.getStyleClass().add("flowchart-junction-stem"); stem.setUserData(vertex.id()); stem.setStroke(INK); stem.setFill(null); stem.setMouseTransparent(true); stem.setVisible(marked);
@@ -1242,7 +1285,7 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
                 arrow.setFill(active ? TRANSITION : selected ? Color.web("#137f83") : INK);
                 paintHandle();
             }
-            void layout(double center, int laneIndex) {
+            void layout(double center) {
                 ShapeBox from = vertices.get(edge.from()), to = vertices.get(edge.to());
                 Junction junction = junctions.get(edge.to());
                 boolean joins = junction != null && junction.marked;
@@ -1250,16 +1293,14 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
                 double fx = center, fy = from.getLayoutY() + from.getHeight();
                 double tx = center, ty = joins ? junction.y : to.getLayoutY();
                 List<double[]> points = new ArrayList<>();
-                boolean direct = !jump && edge.to() == edge.from() + 1;
-                if (direct && flow.edges().stream().filter(other -> other.from() == edge.from() && other.to() == edge.to()).count() > 1
-                        && edge.label().equals("false") && flow.jumpInfo(edge.from()) == null) direct = false;
-                if (direct) {
+                if (direct(edge)) {
                     points.add(new double[] {fx, fy}); points.add(new double[] {tx, ty});
                     label.relocate(fx + 6, fy + 1);
                 } else {
-                    boolean left = !jump && !joins && (edge.to() <= edge.from() || edge.label().equals("true"));
+                    boolean left = left(edge);
                     double side = left ? -1 : 1;
-                    double lane = center + side * (160 + laneIndex % 4 * 11);
+                    double lane = center + (jump ? jumpLaneStart + jumpLanes.get(edge) * 18
+                            : side * (160 + (left ? leftLanes : rightLanes).get(edge) * 18));
                     fx = center + side * from.getWidth() / 2; fy = from.getLayoutY() + from.getHeight() / 2;
                     if (!joins) { tx = center + side * to.getWidth() / 2; ty = to.getLayoutY() + to.getHeight() / 2; }
                     points.add(new double[] {fx, fy}); points.add(new double[] {lane, fy});

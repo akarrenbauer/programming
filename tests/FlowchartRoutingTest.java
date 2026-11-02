@@ -16,6 +16,7 @@ import javafx.geometry.Point2D;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextInputControl;
 import javafx.scene.image.WritableImage;
 import javafx.scene.layout.Region;
@@ -132,6 +133,46 @@ public final class FlowchartRoutingTest {
                     }
                 }
             });
+            check("nested explicit and post-test loop routes put enclosing intervals farther right", () -> {
+                for (String body : List.of(
+                        "outer: NOP; middle: NOP; inner: NOP; JNZ n inner; JNZ n middle; JNZ n outer; HALT;",
+                        "outer: do { do { do { DEC n; } while(n!=0); } while(n!=0); } while(n!=0); JNZ n outer; HALT;")) {
+                    Flowchart graph = render("var n=2;\nbegin:\n" + body + "\n", EnumSet.allOf(GameFeature.class), LanguageVersion.STRUCTURED);
+                    verifyRouteLanes(graph);
+                    if (args.length > 0 && body.contains("do {")) screenshot(Path.of(args[0] + "-nested-lanes.png"));
+                }
+            });
+            check("crossing and shared intervals stay separate beyond four lanes and fit the scroll extent", () -> {
+                Flowchart crossing = render("var n=2;\nbegin:\nfirst: NOP; second: NOP; JNZ n first; NOP; JNZ n second; HALT;\n",
+                        Set.of(), LanguageVersion.STRUCTURED);
+                verifyRouteLanes(crossing);
+                Flowchart dense = render("var n=2;\nbegin:\nhome: NOP;\n" + "JNZ n home;\n".repeat(12) + "HALT;\n",
+                        Set.of(), LanguageVersion.STRUCTURED);
+                verifyRouteLanes(dense);
+                List<Flowchart.Edge> jumps = dense.edges().stream().filter(dense::isJumpRoute).toList();
+                require(jumps.stream().map(FlowchartRoutingTest::laneX).collect(java.util.stream.Collectors.toSet()).size() == 12,
+                        "twelve overlapping jump intervals occupy twelve distinct lanes without wrapping");
+                Region main = (Region) view.lookup("#flowchart-main");
+                double right = jumps.stream().mapToDouble(FlowchartRoutingTest::laneX).max().orElseThrow();
+                require(right + 20 <= main.getWidth(), "rightmost route fits inside the graph's expanded extent with margin");
+                ScrollPane scroll = (ScrollPane) view.lookup(".scroll-pane");
+                require(scroll.getContent().getLayoutBounds().getWidth() > scroll.getViewportBounds().getWidth(),
+                        "dense lanes produce real horizontal scrolling instead of clipping");
+                if (args.length > 0) screenshot(Path.of(args[0] + "-dense-lanes.png"));
+            });
+            check("disjoint jump intervals reuse lanes and mixed control branches keep separate right lanes", () -> {
+                Flowchart disjoint = render("var n=2;\nbegin:\na: JNZ n a; b: JNZ n b; HALT;\n", Set.of(), LanguageVersion.STRUCTURED);
+                List<Flowchart.Edge> jumps = disjoint.edges().stream().filter(disjoint::isJumpRoute).toList();
+                close(laneX(jumps.get(0)), laneX(jumps.get(1)), "disjoint intervals can reuse one vertical route lane");
+                Flowchart mixed = render(MIXED, EnumSet.allOf(GameFeature.class), LanguageVersion.STRUCTURED);
+                verifyRouteLanes(mixed);
+                double center = vertex(0).getLayoutX() + vertex(0).getWidth() / 2;
+                double ordinaryRight = mixed.edges().stream().filter(edge -> !mixed.isJumpRoute(edge))
+                        .filter(edge -> points(path(edge)).size() > 2 && points(path(edge)).get(0).getX() > center)
+                        .mapToDouble(FlowchartRoutingTest::laneX).max().orElse(center);
+                require(mixed.edges().stream().filter(mixed::isJumpRoute).allMatch(edge -> laneX(edge) > ordinaryRight + 15),
+                        "jump routes sit beyond ordinary right-side conditional branches");
+            });
             System.out.println("FlowchartRoutingTest: " + passed + " passed, 0 failed");
         } finally {
             onFx(() -> { if (stage != null) stage.close(); });
@@ -231,6 +272,21 @@ public final class FlowchartRoutingTest {
                 double dy = Math.max(Math.max(text.getMinY() - tail.getY(), tail.getY() - text.getMaxY()), 0);
                 require(Math.hypot(dx, dy) <= 45, "answer stays near its outgoing arrow tail");
             }
+        }
+    }
+    private static double laneX(Flowchart.Edge edge) {
+        return points(path(edge)).stream().mapToDouble(Point2D::getX).max().orElseThrow();
+    }
+    private static void verifyRouteLanes(Flowchart graph) {
+        List<Flowchart.Edge> jumps = graph.edges().stream().filter(graph::isJumpRoute).toList();
+        for (Flowchart.Edge outer : jumps) for (Flowchart.Edge inner : jumps) {
+            if (outer.equals(inner)) continue;
+            int first = Math.min(outer.from(), outer.to()), last = Math.max(outer.from(), outer.to());
+            int from = Math.min(inner.from(), inner.to()), to = Math.max(inner.from(), inner.to());
+            if (from <= last && first <= to) require(Math.abs(laneX(outer) - laneX(inner)) >= 17,
+                    "overlapping closed intervals use distinct vertical routes: " + outer + " / " + inner);
+            if (first <= from && to <= last && (first < from || to < last)) require(laneX(outer) > laneX(inner),
+                    "enclosing jump route lies farther right than the contained route");
         }
     }
 

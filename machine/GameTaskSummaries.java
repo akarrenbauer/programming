@@ -10,7 +10,7 @@ public final class GameTaskSummaries {
             entry("first-steps", "Increase x by one and halt.",
                     "Erhöhe x um eins und halte an."),
             entry("clear-block", "Add ; after INC dummy and braces around only DEC x; keep the instruction order and trailing JNZ.",
-                    "Füge ; nach INC dummy und Klammern nur um DEC x ein; behalte die Reihenfolge und den nachfolgenden JNZ bei."),
+                    "Füge nach INC dummy; eine zusätzliche leere Anweisung (;) ein. Setze geschweifte Klammern nur um DEC x; und lasse JNZ x do; dahinter."),
             entry("clear-do-while", "Replace the labeled clearing loop and its jump with do/while, keeping the setup, loop body and final HALT.",
                     "Ersetze die markierte Löschschleife samt Sprung durch do/while; behalte Vorbereitung, Schleifenrumpf und HALT bei."),
             entry("mandatory-lap", "Use do/while to reduce n to zero and count max(1, original n) rounds, including one round when n starts at zero.",

@@ -8,6 +8,9 @@ import java.util.Map;
 import java.util.Objects;
 
 import javafx.beans.InvalidationListener;
+import javafx.application.Platform;
+import javafx.beans.property.DoubleProperty;
+import javafx.beans.property.DoublePropertyBase;
 import javafx.geometry.Point2D;
 import javafx.scene.Group;
 import javafx.scene.Node;
@@ -34,6 +37,15 @@ public final class SourceEditor extends TextArea {
     private List<IndexRange> callerRanges = List.of();
     private boolean executionHalted;
     private int pendingReveal = -1;
+    private double appliedZoom = 1;
+    private double zoomAnchorX, zoomAnchorY;
+    private boolean restoreZoomScroll;
+    private final DoubleProperty zoomFactor = new DoublePropertyBase(1) {
+        @Override public Object getBean() { return SourceEditor.this; }
+        @Override public String getName() { return "zoomFactor"; }
+        @Override public void set(double value) { super.set(DiagramZoomPane.clamp(value)); }
+        @Override protected void invalidated() { applyZoom(); }
+    };
 
     public SourceEditor(String text) {
         super(text);
@@ -44,9 +56,14 @@ public final class SourceEditor extends TextArea {
         // the opportunity to consume application shortcuts or intercepted keys.
         addEventHandler(KeyEvent.KEY_PRESSED, this::keepIndentation);
         textProperty().addListener((observable, previous, current) -> {
+            restoreZoomScroll = false;
             clearExecutionHighlights();
             clearLinkedRange();
         });
+        fontProperty().addListener((observable, previous, current) -> {
+            if (restoreZoomScroll) Platform.runLater(this::restoreZoomViewport);
+        });
+        caretPositionProperty().addListener((observable, previous, current) -> restoreZoomScroll = false);
     }
 
     private void keepIndentation(KeyEvent event) {
@@ -72,6 +89,31 @@ public final class SourceEditor extends TextArea {
 
     public LanguageVersion getLanguageVersion() {
         return languageVersion;
+    }
+
+    public DoubleProperty zoomFactorProperty() { return zoomFactor; }
+    public double getZoomFactor() { return DiagramZoomPane.clamp(zoomFactor.get()); }
+    public void setZoomFactor(double value) { zoomFactor.set(DiagramZoomPane.clamp(value)); }
+
+    private void applyZoom() {
+        if (!restoreZoomScroll) {
+            zoomAnchorX = getScrollLeft() / appliedZoom;
+            zoomAnchorY = getScrollTop() / appliedZoom;
+            restoreZoomScroll = true;
+        }
+        appliedZoom = getZoomFactor();
+        // Inline CSS keeps the native TextArea font and its syntax/marker geometry on the same scale.
+        String style = getStyle().replaceAll("(?i)-fx-font-size\\s*:[^;]*(;|$)", "");
+        setStyle(style.strip().replaceAll(";\\s*$", "") + "; -fx-font-size: " + (13 * getZoomFactor()) + "px;");
+    }
+
+    private void restoreZoomViewport() {
+        if (!restoreZoomScroll || Math.abs(getFont().getSize() - 13 * appliedZoom) >= .01) return;
+        // The native content pane reveals its caret after a font change. Restore after that
+        // layout, retaining the document position even when the caret was scrolled offscreen.
+        restoreZoomScroll = false;
+        setScrollLeft(zoomAnchorX * appliedZoom);
+        setScrollTop(zoomAnchorY * appliedZoom);
     }
 
     /** Changes token colors without editing text, selection, undo history or execution markers. */
@@ -144,6 +186,7 @@ public final class SourceEditor extends TextArea {
         if (offset < 0 || offset > getLength()) {
             throw new IllegalArgumentException("Source offset outside the document: " + offset);
         }
+        restoreZoomScroll = false;
         pendingReveal = offset;
         requestLayout();
     }

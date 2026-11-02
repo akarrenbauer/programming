@@ -293,6 +293,24 @@ public final class StructuredDiagramViewTest {
                 view.highlightSourceOffset(view.getSource().indexOf("DEC value;"));
                 require(((StructuredDiagram.Node) view.lookup(".diagram-source-highlight").getUserData()).editText().equals("DEC value;"), "helper body source offsets map to the corresponding nested box");
             });
+            check("diagram zoom scales boxes and fields without discarding pending edits or source links", () -> {
+                reset(PROGRAM); view.setZoomFactor(1); view.applyCss(); view.layout();
+                TextInputControl pending = field("INC result;"); pending.requestFocus();
+                double height = pending.localToScene(pending.getLayoutBounds()).getHeight();
+                pending.setText("DEC result;"); pending.selectRange(4, 1);
+                view.highlightSourceOffset(PROGRAM.indexOf("n == 0") + 1);
+                IndexRange linked = view.getHighlightedRange();
+                Node box = view.lookup(".diagram-decision");
+                view.setZoomFactor(2); stage.getScene().getRoot().applyCss(); stage.getScene().getRoot().layout(); view.layout();
+                require(field("DEC result;") == pending && view.lookup(".diagram-decision") == box, "zoom never recreates the edited tree");
+                require(Math.abs(pending.localToScene(pending.getLayoutBounds()).getHeight() - 2 * height) < .2,
+                        "field and box geometry scale together: " + height + " -> " + pending.localToScene(pending.getLayoutBounds()).getHeight());
+                require(stage.getScene().getFocusOwner() == pending && pending.getAnchor() == 4 && pending.getCaretPosition() == 1, "zoom leaves pending selection and focus intact");
+                require(view.getSource().equals(PROGRAM) && changed.isEmpty() && view.getHighlightedRange().equals(linked), "source and exact linked range stay unchanged");
+                enter(pending, 3); require(view.getSource().contains("DEC result;") && changed.size() == 1, "scaled field still commits exactly one source edit");
+                view.resetContext(); view.setSource(PROGRAM); require(view.getZoomFactor() == 2, "view zoom survives source context changes");
+                view.setZoomFactor(1);
+            });
             String screenshot = System.getProperty("diagram.screenshot");
             if (screenshot != null) onFx(() -> {
                 reset(PROGRAM);
