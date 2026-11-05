@@ -6,6 +6,7 @@ import java.util.List;
 
 import machine.Machine;
 import machine.ParseException;
+import machine.TokenMgrError;
 
 /**
  * Run from the repository root without using the existing machine/*.class files:
@@ -100,6 +101,100 @@ public class CompilerMacroListsTest {
             expect(1, machine.get(1), "constant parameters must match their arguments");
         });
 
+        check("add overloads with a later zero selector preserve runtime copies and input values", () -> {
+            for (int input : new int[] {0, 1, 6}) {
+                Machine machine = execute(
+                    "void add(n,0,out) {",
+                    "var nn=n;",
+                    "while(out!=0) { DEC out; }",
+                    "while(nn!=0) { DEC nn; INC out; }",
+                    "}",
+                    "void add(n,1,out) {",
+                    "var nn=n;",
+                    "while(out!=0) { DEC out; }",
+                    "while(nn!=0) { DEC nn; INC out; }",
+                    "INC out;",
+                    "}",
+                    "var n=" + input + "; var first=9; var second=11;",
+                    "begin: add(n,0,first); add(n,1,second); HALT;"
+                );
+                expect(input, machine.get(1), "both specializations preserve n");
+                expect(input, machine.get(2), "zero specialization clears and copies into first");
+                expect(input + 1, machine.get(3), "one specialization clears and increments the copy");
+            }
+        });
+
+        check("zero and one selectors cannot replace earlier named-parameter markers", () -> {
+            String[][] signatures = {
+                {"cell,0", "result,0"}, {"0,cell", "0,result"},
+                {"cell,1", "result,1"}, {"1,cell", "1,result"},
+                {"first,cell,1", "other,result,1"}, {"cell,1,0", "result,1,0"},
+                {"first,cell,0,1", "other,result,0,1"}
+            };
+            for (String[] signature : signatures) {
+                Machine machine = execute(
+                    "void choose(" + signature[0] + ") { INC cell; }",
+                    "var result=0; var other=7; begin: choose(" + signature[1] + "); HALT;"
+                );
+                expect(1, machine.get(1), "named parameter survives signature " + signature[0]);
+                expect(7, machine.get(2), "unused named parameter stays unchanged");
+            }
+            Machine multiple = execute(
+                "void choose(a,b,c,0,1,2) { INC a; INC b; INC c; }",
+                "var a=0; var b=0; var c=0; begin: choose(a,b,c,0,1,2); HALT;"
+            );
+            for (int address = 1; address <= 3; address++) expect(1, multiple.get(address), "all colliding marker indices remain independent");
+        });
+
+        check("later literal selectors compose through nested helper expansions", () -> {
+            for (int input : new int[] {0, 6}) {
+                Machine machine = execute(
+                    "void add(n,0,out) { var nn=n; while(out!=0) { DEC out; } while(nn!=0) { DEC nn; INC out; } }",
+                    "void add(n,1,out) { var nn=n; while(out!=0) { DEC out; } while(nn!=0) { DEC nn; INC out; } INC out; }",
+                    "void wrapper(n,0,out) { add(n,0,out); add(out,1,out); }",
+                    "var input=" + input + "; var result=12; begin: wrapper(input,0,result); HALT;"
+                );
+                expect(input, machine.get(1), "nested invocation preserves the input");
+                expect(input + 1, machine.get(2), "nested overloads keep arguments and alias-safe runtime copies");
+            }
+        });
+
+        check("signature selectors leave ordinary constants and array indices unchanged", () -> {
+            String body = "var cells[2]=0; INC cells[0]; INC cells[1]; var work=1; "
+                    + "while(work!=0) { DEC work; INC out; } "
+                    + "if(source==0) { INC out; } if(cells[0]==1) { INC out; } if(cells[1]==1) { INC out; }";
+            for (int input : new int[] {0, 6}) {
+                String globals = "var input=" + input + "; var result=0;";
+                List<Integer> specialized = compile("void inspect(source,0,1,out) { " + body + " }",
+                    globals, "begin: inspect(input,0,1,result); HALT;");
+                List<Integer> ordinary = compile("void inspect(source,out) { " + body + " }",
+                    globals, "begin: inspect(input,result); HALT;");
+                if (!specialized.equals(ordinary)) throw new AssertionError("selectors changed body bytecode or local allocation");
+                Machine machine = new Machine();
+                machine.load(specialized);
+                machine.step(1000);
+                if (!machine.isHalted()) throw new AssertionError("constant and array-index fixture did not halt");
+                expect(input == 0 ? 4 : 3, machine.get(2), "body constants retain their original values");
+            }
+        });
+
+        check("mutable literal arguments still get storage beside literal selectors", () -> {
+            Machine machine = execute(
+                "void drain(count,0,out) { while(count!=0) { DEC count; INC out; } }",
+                "var result=0; begin: drain(3,0,result); drain(0,0,result); drain(2,0,result); HALT;"
+            );
+            expect(5, machine.get(1), "named count parameters retain their mutable literal temporaries");
+        });
+
+        check("numeric selectors still reject mismatching values spellings and nonliteral arguments", () -> {
+            for (String argument : new String[] {"1", "00", "input"}) {
+                expectSubstitutionError("void choose(cell,0) { INC cell; }",
+                    "var input=0; var result=0; begin: choose(result," + argument + "); HALT;");
+            }
+            expectSubstitutionError("void choose(cell,1) { INC cell; }",
+                "var result=0; begin: choose(result,01); HALT;");
+        });
+
         check("later main-call arguments still undergo variable validation", () -> {
             for (String arguments : new String[] {"known,missing,known", "known,known,missing[0]"}) {
                 expectUnknownVariable(
@@ -132,7 +227,7 @@ public class CompilerMacroListsTest {
             test.run();
             ++passed;
             System.out.println("PASS " + name);
-        } catch (Exception | AssertionError error) {
+        } catch (Exception | AssertionError | TokenMgrError error) {
             ++failed;
             System.err.println("FAIL " + name + ": " + error.getMessage());
         }
@@ -183,6 +278,18 @@ public class CompilerMacroListsTest {
             return;
         }
         throw new AssertionError("an unknown variable in a later argument position was accepted");
+    }
+
+    private static void expectSubstitutionError(String... source) throws Exception {
+        try {
+            compile(source);
+        } catch (ParseException error) {
+            if (error.getMessage() == null || !error.getMessage().startsWith("Macro substitution failed!")) {
+                throw new AssertionError("expected a literal-selector mismatch, got " + error.getMessage());
+            }
+            return;
+        }
+        throw new AssertionError("compilation accepted a mismatching literal selector");
     }
 
     private static void expect(int expected, int actual, String description) {

@@ -348,6 +348,66 @@ public final class GameEngineTest {
             require(result.passed(), result.summary());
         });
 
+        test("literal macro selectors after named parameters compile and reach specialization output checks", () -> {
+            GameLevel challenge = catalogLevel("specialization-practice");
+            Set<GameFeature> earned = earnedBefore(challenge);
+            require(earned.contains(GameFeature.LITERAL_PARAMETERS) && !earned.contains(GameFeature.IMPORTS),
+                    "the fixture uses exactly the tools earned before specialization practice");
+            String original = """
+                    void add(n, 0, out) {
+                        var nn = n;
+                        while (out != 0) {
+                            DEC out;
+                        }
+                        while (nn != 0) {
+                            DEC nn;
+                            INC out;
+                        }
+                    }
+                    void add(n, 1, out) {
+                        var nn = n;
+                        while (out != 0) {
+                            DEC out;
+                        }
+                        while (nn != 0) {
+                            DEC nn;
+                            INC out;
+                        }
+                        INC out;
+                    }
+
+                    var n = 0;
+                    var first = 0;
+                    var second = 0;
+                    begin:
+                    // Define your two literal specializations above the globals.
+                    add(n, 0, first);
+                    add(n, 1, second);
+                    HALT;
+                    """;
+            GameResult mismatch = check(challenge, original, earned);
+            require(!mismatch.passed() && mismatch.cases().size() == 1, mismatch.summary());
+            GameResult.CaseResult first = mismatch.cases().get(0);
+            require(first.message().equals("The program halted with different output values.")
+                            && first.actual().equals(Map.of("n", 0, "first", 0, "second", 1)),
+                    "the original source compiles and fails only the exercise's expected output: " + mismatch.summary());
+
+            List<GameLevel.TestCase> originalCases = challenge.cases().stream().map(test -> {
+                int n = test.inputs().get("n");
+                return new GameLevel.TestCase(test.inputs(), Map.of("n", n, "first", n, "second", n + 1));
+            }).toList();
+            GameLevel behavior = new GameLevel("specialization-behavior", "test", "test", "test", "", "", List.of(),
+                    Set.of(), Set.of(), Map.of(), originalCases, challenge.maxSteps());
+            GameResult originalBehavior = check(behavior, original, earned);
+            require(originalBehavior.passed() && originalBehavior.cases().size() == challenge.cases().size(),
+                    "runtime copies and both specialized loops preserve n and produce n / n+1: " + originalBehavior.summary());
+
+            String corrected = original.replace("\n}\n", "\n    INC out;\n}\n");
+            GameResult complete = check(challenge, corrected, earned);
+            require(complete.passed() && complete.cases().size() == challenge.cases().size(),
+                    "one extra increment in each specialization satisfies every exercise case: " + complete.summary());
+        });
+
         test("input and output ports cannot be missing copied array-shaped or redeclared", () -> {
             for (String source : List.of("var out=0; begin: HALT;", "var input[2]=0; var out=0; begin: HALT;",
                     "var a=0; var input=a; var out=0; begin: HALT;", "var input=0; var input=1; var out=0; begin: HALT;",

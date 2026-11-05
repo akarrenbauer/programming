@@ -53,6 +53,8 @@ runs `Program(true)` to check the source before macro expansion. Macro-body
 global references are validated after the global declarations. Expansion then
 substitutes arguments and renames macro-local variables and labels. Another fresh
 parser runs `Program(false)` on the expanded source and rejects unresolved labels.
+Numeric signature parameters select matching definitions; only named parameters
+are substituted into macro bodies.
 Preprocessing recognizes import and macro keywords at their boundaries and splits
 after closing braces, so formatting does not change how calls, local declarations,
 and private labels are recognized.

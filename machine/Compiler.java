@@ -177,11 +177,15 @@ public class Compiler {
                         }
 
                         for (int k = 0; k < parameterList.length; ++k) {
-                            if (macroLine.contains("INC " + parameterList[k].trim()) ||
-                            macroLine.contains("DEC " + parameterList[k].trim())) {
+                            String parameter = parameterList[k].trim();
+                            // Literal parameters select a definition; they do not bind body tokens.
+                            // Replacing them would also corrupt digits in earlier parameter markers.
+                            if (Character.isDigit(parameter.charAt(0))) continue;
+                            if (macroLine.contains("INC " + parameter) ||
+                            macroLine.contains("DEC " + parameter)) {
                                 nonconst[k] = true;
                             }
-                            macroLine = macroLine.replaceAll("\\b" + parameterList[k].trim() + "\\b", "%%" + k + "%%");
+                            macroLine = macroLine.replaceAll("\\b" + parameter + "\\b", "%%" + k + "%%");
                         }
                         strippedSourceCode.set(i, MappedText.plain(""));
                         i++;
@@ -207,6 +211,7 @@ public class Compiler {
                                 if (matchingSignature(argumentList, parameterList)) {
                                     MappedText expandedMacro = macroDefinition.invokedBy(callLine.origin(0));
                                     for (int k = 0; k < argumentList.length; k++) {
+                                        if (Character.isDigit(parameterList[k].trim().charAt(0))) continue;
                                         String arg = argumentList[k].trim();
                                         if (nonconst[k] && Character.isDigit(arg.charAt(0))) {
                                             MappedText temporary = MappedText.located(
