@@ -118,11 +118,19 @@ determine looping or branching. Editing either view updates the same saved draft
 element highlights its source lines; moving the source cursor highlights the
 matching element.
 Once `do/while`, `if/else`, and `while` are unlocked, enter **Structured
-programming**: explicit `JNZ` is suspended, and the flowchart is replaced by an
-editable Nassi–Shneiderman diagram. Code and diagram continue to update each
-other. The first challenge in this world rewrites
+programming**: explicit `JNZ` is suspended, and the diagram initially shows
+**Nassi–Shneiderman**. From this world onward, use the diagram selector to choose
+**Nassi–Shneiderman** or **Flowchart** beside the code. Both edit the same draft
+and enforce structured control flow; the later-world flowchart offers structured
+insertion tools instead of movable jump destinations. **Undo** and **Redo** above
+the source also reverse and restore applied diagram edits. For keyboard undo,
+click in the source and press **Ctrl+Z** (**Cmd+Z** on macOS).
+The first challenge in this world rewrites
 the working `if` plus `do/while` loop using the newly earned `while` syntax.
 Earlier worlds remain available for replay.
+Use **Debug** to inspect a draft with one test case. Its **Variables** table
+shows declared globals, individual array cells, and allocated local variables;
+values update as you step and reset when you restart the case.
 Choose **English** or **Deutsch** under **Task language**. The initial choice
 follows the system language; the game remembers your selection. Task text,
 hints, and status messages are translated, while control labels, grammar, and code stay in English.

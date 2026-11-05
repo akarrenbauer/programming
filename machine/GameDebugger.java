@@ -107,11 +107,14 @@ public final class GameDebugger {
         configureSources();
         configureMemory();
         configurePorts();
-        Label portTitle = new Label("Named inputs and outputs");
+        Label portTitle = new Label("Variables");
+        portTitle.setId("debug-variables-title");
+        portTitle.setTooltip(new Tooltip("All declared cells. Local names include their memory address; hover a row for its declaration and callers."));
         Label memoryTitle = new Label("Memory · address 0 contains i");
         VBox inspection = new VBox(7, portTitle, ports, memoryTitle, memory);
-        ports.setPrefHeight(215);
+        ports.setPrefHeight(320);
         ports.setMinHeight(120);
+        VBox.setVgrow(ports, Priority.ALWAYS);
         VBox.setVgrow(memory, Priority.ALWAYS);
         SplitPane split = new SplitPane(sources, inspection);
         split.setDividerPositions(0.65);
@@ -192,11 +195,23 @@ public final class GameDebugger {
         });
         Set<String> names = new LinkedHashSet<>(session.getTestCase().inputs().keySet());
         names.addAll(session.getTestCase().expected().keySet());
+        names.addAll(session.getNamedAddresses().keySet());
         ports.getItems().addAll(names);
+        ports.setRowFactory(table -> new TableRow<>() {
+            @Override protected void updateItem(String name, boolean empty) {
+                super.updateItem(name, empty);
+                SourceTrace source = empty || name == null ? null : session.getVariableSource(name);
+                if (source == null) { setTooltip(null); return; }
+                StringBuilder detail = new StringBuilder(text("Declared at ", "Deklariert in ")).append(describe(source.location()));
+                for (SourceLocation caller : source.callers()) detail.append('\n').append(text("Called from ", "Aufgerufen von ")).append(describe(caller));
+                setTooltip(new Tooltip(detail.toString()));
+            }
+        });
     }
 
     private void addPortColumn(String title, Function<String, String> text) {
         TableColumn<String, String> column = new TableColumn<>(title);
+        column.setPrefWidth(title.equals("Cell") ? 140 : 65);
         column.setCellValueFactory(cell -> new ReadOnlyStringWrapper(text.apply(cell.getValue())));
         ports.getColumns().add(column);
     }

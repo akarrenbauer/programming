@@ -33,8 +33,7 @@ public final class GameWorldTest {
                 }
                 expect(GameWorld.usesDiagrams(level) == GameWorld.hasStructuredControls(earned),
                         "Nassi–Shneiderman diagrams start immediately after all control structures: " + level.id());
-                expect(GameWorld.usesFlowcharts(level) == (world == GameWorld.MACHINE_FOUNDATIONS),
-                        "foundations use flowcharts, later worlds use structured diagrams: " + level.id());
+                expect(GameWorld.usesFlowcharts(level), "flowcharts remain available in every world: " + level.id());
                 earned.addAll(level.unlocks());
                 previous = world;
             }

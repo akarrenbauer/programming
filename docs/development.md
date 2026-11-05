@@ -30,7 +30,7 @@ javac --release 17 -d "$machine_build" \
 | [SourceEditor.java](../machine/SourceEditor.java), [SourceSyntax.java](../machine/SourceSyntax.java) | JavaFX source highlighting and its tolerant, text-preserving token classifier. |
 | [LanguageGame.java](../machine/LanguageGame.java) | Standalone JavaFX game, background checks, feedback, and saved drafts. |
 | [StructuredDiagram.java](../machine/StructuredDiagram.java), [StructuredDiagramView.java](../machine/StructuredDiagramView.java) | Source-preserving diagram model, keyboard editing, and nested insertion targets. |
-| [Flowchart.java](../machine/Flowchart.java), [FlowchartView.java](../machine/FlowchartView.java) | World 1 control-flow graph and editable flowchart with explicit jump edges and lesson-specific language profiles. |
+| [Flowchart.java](../machine/Flowchart.java), [FlowchartView.java](../machine/FlowchartView.java) | Editable control-flow graph with explicit jump edges in World 1, structured editing in later worlds, and lesson-specific language profiles. |
 | [DiagramToolbox.java](../machine/DiagramToolbox.java), [DiagramValidation.java](../machine/DiagramValidation.java) | Draggable control-structure symbols, bounded compilation checks, and damage marks on the last valid diagram. |
 | [GameMessages.java](../machine/GameMessages.java), [GameDiagnostics.java](../machine/GameDiagnostics.java) | Task-language status messages and diagnostic presentation, preserving code, identifiers, and checker results. |
 | [LanguageGameLauncher.java](../machine/LanguageGameLauncher.java), [pom.xml](../pom.xml) | Executable Linux JAR entry point and Maven build bundling JavaFX. |
@@ -321,16 +321,23 @@ JavaCC grammar when changing the language. Only virtual, earned toolbox imports
 so global copies receive the test input too. Runtime failures map back through
 those substitutions to the student's original text.
 
-World 1 pairs the source editor with `FlowchartView`; later worlds use
-`StructuredDiagramView`. Both project the same persisted source draft, and
-diagram edits patch the affected source range so native undo also restores the
-diagram. The flowchart palette contains only rectangle and diamond shapes;
+World 1 pairs the source editor with `FlowchartView`; later worlds offer a
+selector between `StructuredDiagramView` (the initial choice) and `FlowchartView`.
+The later-world choice lasts for the application session and survives World 1
+replay; it is not part of saved progress.
+Both project the same persisted source draft, and diagram edits patch the
+affected source range so native undo also restores the diagrams. The source
+toolbar's Undo and Redo buttons use this shared history. Switching views retains
+pending fields while the source is unchanged. In World 1, the flowchart palette
+contains only rectangle and diamond shapes;
 instruction placeholders still follow the earned feature set, and jump-head
 placement determines the control-flow path. Post-test loops render their body
 and trailing decision directly; their source-owned entry is an invisible
 junction anchor rather than a `do` action box. Moving a direct nonzero loop's
 return head atomically lowers its source to a block and explicit `JNZ`; a drop
 on the original entry keeps the structured source intact.
+Later worlds disable explicit jumps in flowchart validation and use structured
+insertion tools. Their loop destinations cannot be moved to introduce `JNZ`.
 The flowchart follows `GameLanguage.editingVersionFor`: early labels
 and explicit `JNZ` are legal, and the conversion lesson can show either its old
 labeled loop or the rewritten structured loop. A flowchart does not grant
@@ -388,6 +395,16 @@ checker, and shares its memory and arithmetic guards. It skips exercise-specific
 completion requirements so an unfinished draft can be inspected. Debug sessions
 are immutable source snapshots, do not award progress, and keep the same step
 budget as the selected level.
+The debugger's named-address map includes compiler-backed global and local
+declarations, expanding arrays into individual cells. Local display names carry
+their memory address to distinguish shadowed declarations and repeated macro
+expansions; row tooltips show declaration provenance and the macro caller chain.
+Macro arguments remain substitutions of the caller's references;
+the table does not invent separate parameter storage. `GameDebugger` shows
+these entries in **Variables**, alongside any missing outputs required by the
+test contract. Compiler scratch cells remain in the raw memory table.
+Input and Expected remain contract-only columns, while Now
+reads current memory and refreshes after stepping, running, and restarting.
 
 Core game checks require only the JDK:
 
@@ -432,6 +449,9 @@ compilation and damage attribution; [StructuredDiagramViewTest](../tests/Structu
 [DiagramToolboxTest](../tests/DiagramToolboxTest.java), and
 [GameWorldEditorTest](../tests/GameWorldEditorTest.java) cover positional Enter,
 trash icons, pointer and keyboard insertion, cached diagrams, and source undo.
+[GameDiagramModesTest](../tests/GameDiagramModesTest.java) checks the later-world
+selector, shared drafts and undo/redo buttons, pending fields, structured-only
+flowcharts, and transitions between worlds.
 [GameFlowchartEditorTest](../tests/GameFlowchartEditorTest.java) covers the first
 world's jump paths, source/flowchart synchronization, undo, invalid-draft
 recovery, and the transition between legacy `do:` labels and structured loops.

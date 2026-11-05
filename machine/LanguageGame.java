@@ -18,6 +18,7 @@ import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
@@ -68,6 +69,11 @@ public class LanguageGame extends Application {
     private SplitPane programEditors;
     private StructuredDiagramView diagram;
     private FlowchartView flowchart;
+    private ComboBox<String> diagramMode;
+    private String structuredDiagramMode = "Nassi–Shneiderman";
+    private boolean selectingDiagramMode;
+    private boolean diagramInitialized;
+    private boolean flowchartInitialized;
     private Label editorVersion;
     private GameGrammarView grammar;
     private Tab grammarTab;
@@ -364,27 +370,26 @@ public class LanguageGame extends Application {
         diagram = new StructuredDiagramView();
         diagram.zoomFactorProperty().bind(editorZoom.factorProperty());
         diagram.setId("game-diagram");
-        diagram.setOnSourceChanged(this::applyDiagramSource);
+        diagram.setOnSourceChanged(source -> applyDiagramSource(diagram, source));
+        diagram.setOnSourceFocused(range -> highlightDiagramSource(diagram, range));
         flowchart = new FlowchartView();
         flowchart.zoomFactorProperty().bind(editorZoom.factorProperty());
         flowchart.setId("game-flowchart");
         flowchart.setLanguageVersionResolver(source -> currentIndex < 0 ? LanguageVersion.BEFORE_DO_WHILE
                 : GameLanguage.editingVersionFor(current(), progress.features(), source));
-        flowchart.setOnSourceChanged(this::applyDiagramSource);
-        flowchart.setOnSourceFocused(this::highlightFlowchartSource);
-        editor.caretPositionProperty().addListener((observable, before, after) -> highlightFlowchartCaret());
+        flowchart.setOnSourceChanged(source -> applyDiagramSource(flowchart, source));
+        flowchart.setOnSourceFocused(range -> highlightDiagramSource(flowchart, range));
+        editor.caretPositionProperty().addListener((observable, before, after) -> highlightDiagramCaret());
         editor.focusedProperty().addListener((observable, before, focused) -> {
-            if (focused) highlightFlowchartCaret();
+            if (focused) highlightDiagramCaret();
         });
         editor.textProperty().addListener((observable, before, after) -> {
             if (!loading && currentIndex >= 0) {
                 progress.setDraft(current().id(), after);
                 refreshEditorVersion();
-                if (GameWorld.usesDiagrams(current())) diagram.setSource(after);
-                if (GameWorld.usesFlowcharts(current())) {
-                    flowchart.setSource(after);
-                    highlightFlowchartCaret();
-                }
+                if (diagramInitialized) diagram.setSource(after);
+                if (flowchartInitialized) flowchart.setSource(after);
+                highlightDiagramCaret();
                 saveDelay.playFromStart();
             }
         });
@@ -416,7 +421,33 @@ public class LanguageGame extends Application {
         VBox.setVgrow(editor, Priority.ALWAYS);
         programEditors = new SplitPane(sourcePane);
         programEditors.setId("game-program-editors");
-        VBox program = new VBox(editorVersion, programEditors);
+        diagramMode = new ComboBox<>();
+        diagramMode.setId("game-diagram-mode");
+        diagramMode.setAccessibleText("Diagram view");
+        diagramMode.setTooltip(new Tooltip("Choose a view of the same program. Both views use this world's available instructions."));
+        diagramMode.valueProperty().addListener((observable, before, selected) -> {
+            if (selectingDiagramMode || selected == null || currentIndex < 0 || !GameWorld.usesDiagrams(current())) return;
+            structuredDiagramMode = selected;
+            refreshDiagram();
+        });
+        Label diagramLabel = new Label("Diagram");
+        diagramLabel.setLabelFor(diagramMode);
+        Button undo = new Button("Undo");
+        undo.setId("game-undo");
+        undo.setTooltip(new Tooltip("Undo the last source or applied diagram edit. In the source: Ctrl+Z (Cmd+Z on macOS)."));
+        undo.disableProperty().bind(editor.undoableProperty().not().or(editor.editableProperty().not()));
+        undo.setOnAction(event -> editor.undo());
+        Button redo = new Button("Redo");
+        redo.setId("game-redo");
+        redo.setTooltip(new Tooltip("Restore the last undone source or applied diagram edit."));
+        redo.disableProperty().bind(editor.redoableProperty().not().or(editor.editableProperty().not()));
+        redo.setOnAction(event -> editor.redo());
+        Region editorSpacer = new Region();
+        HBox.setHgrow(editorSpacer, Priority.ALWAYS);
+        HBox editorControls = new HBox(8, diagramLabel, diagramMode, editorSpacer, undo, redo);
+        editorControls.setAlignment(Pos.CENTER_LEFT);
+        editorControls.setPadding(new Insets(4, 6, 4, 6));
+        VBox program = new VBox(editorControls, editorVersion, programEditors);
         VBox.setVgrow(programEditors, Priority.ALWAYS);
         work = new TabPane(new Tab("Your program", program), grammarTab, toolboxTab, taskTab);
         work.setId("game-work");
@@ -594,9 +625,9 @@ public class LanguageGame extends Application {
     }
 
     /** Patch only the changed range, keeping native undo and unrelated source formatting. */
-    private void applyDiagramSource(String source) {
+    private void applyDiagramSource(Node view, String source) {
         if (loading || activeCheck != null || currentIndex < 0
-                || !(GameWorld.usesDiagrams(current()) || GameWorld.usesFlowcharts(current()))) return;
+                || !programEditors.getItems().contains(view)) return;
         String previous = editor.getText();
         if (previous.equals(source)) return;
         int start = 0;
@@ -613,45 +644,62 @@ public class LanguageGame extends Application {
     }
 
     /** Link the two views without changing the source selection or taking focus from the diagram. */
-    private void highlightFlowchartSource(IndexRange range) {
-        if (loading || currentIndex < 0 || !GameWorld.usesFlowcharts(current()) || !flowchart.isSynchronized()
-                || !flowchart.getSource().equals(editor.getText()) || range == null || range.getEnd() > editor.getLength()) return;
+    private void highlightDiagramSource(Node view, IndexRange range) {
+        if (loading || currentIndex < 0 || !programEditors.getItems().contains(view)
+                || range == null || range.getEnd() > editor.getLength()) return;
+        boolean valid = view == flowchart
+                ? flowchart.isSynchronized() && flowchart.getSource().equals(editor.getText())
+                : diagram.isSynchronized() && diagram.getSource().equals(editor.getText());
+        if (!valid) return;
         editor.setLinkedRange(range.getStart(), range.getEnd());
         editor.revealSourceOffset(range.getStart());
     }
 
-    private void highlightFlowchartCaret() {
-        if (loading || applyingDiagramSource || currentIndex < 0 || !GameWorld.usesFlowcharts(current())) return;
+    private void highlightDiagramCaret() {
+        if (loading || applyingDiagramSource || currentIndex < 0 || programEditors == null) return;
         editor.clearLinkedRange();
-        flowchart.highlightSourceOffset(editor.getCaretPosition());
+        if (programEditors.getItems().contains(flowchart)) flowchart.highlightSourceOffset(editor.getCaretPosition());
+        else if (programEditors.getItems().contains(diagram)) diagram.highlightSourceOffset(editor.getCaretPosition());
     }
 
     private void refreshDiagram() {
-        boolean visible = currentIndex >= 0 && GameWorld.usesDiagrams(current());
-        if (visible) {
-            programEditors.getItems().remove(flowchart);
+        if (currentIndex < 0) return;
+        boolean structured = GameWorld.usesDiagrams(current());
+        List<String> modes = structured ? List.of("Nassi–Shneiderman", "Flowchart") : List.of("Flowchart");
+        selectingDiagramMode = true;
+        try {
+            if (!diagramMode.getItems().equals(modes)) diagramMode.getItems().setAll(modes);
+            diagramMode.setValue(structured ? structuredDiagramMode : "Flowchart");
+        } finally { selectingDiagramMode = false; }
+        diagramMode.setDisable(activeCheck != null || !structured);
+        Node chosen = structured && !"Flowchart".equals(diagramMode.getValue()) ? diagram
+                : GameWorld.usesFlowcharts(current()) ? flowchart : null;
+        // Initialize each view on first use; keep its pending fields when switching back.
+        diagramInitialized |= chosen == diagram;
+        flowchartInitialized |= chosen == flowchart;
+        if (diagramInitialized) {
             diagram.setTaskLanguage(progress.taskLanguage());
             diagram.setFeatures(progress.features());
             diagram.setLibraries(GameCatalog.library(progress.completedIds()));
             diagram.setSource(editor.getText());
-            if (!programEditors.getItems().contains(diagram)) {
-                programEditors.getItems().add(diagram);
-                programEditors.setDividerPositions(0.46);
-            }
-        } else {
-            programEditors.getItems().remove(diagram);
         }
-        if (currentIndex >= 0 && GameWorld.usesFlowcharts(current())) {
+        if (flowchartInitialized) {
             flowchart.setTaskLanguage(progress.taskLanguage());
+            flowchart.setExplicitJumpsAllowed(!structured);
             flowchart.setFeatures(progress.features());
             flowchart.setLibraries(GameCatalog.library(progress.completedIds()));
             flowchart.setSource(editor.getText());
-            if (!programEditors.getItems().contains(flowchart)) {
-                programEditors.getItems().add(flowchart);
-                programEditors.setDividerPositions(0.46);
-            }
-        } else {
-            programEditors.getItems().remove(flowchart);
+        }
+        if (chosen == null || !programEditors.getItems().contains(chosen)) {
+            double divider = programEditors.getItems().size() == 2 ? programEditors.getDividerPositions()[0] : .46;
+            Node sourcePane = programEditors.getItems().get(0);
+            editor.clearLinkedRange();
+            diagram.clearSourceHighlight();
+            flowchart.clearSourceHighlight();
+            if (chosen == null) programEditors.getItems().setAll(sourcePane);
+            else programEditors.getItems().setAll(sourcePane, chosen);
+            programEditors.setDividerPositions(divider);
+            highlightDiagramCaret();
         }
     }
 
@@ -688,6 +736,7 @@ public class LanguageGame extends Application {
         loading = true;
         diagram.resetContext();
         flowchart.resetContext();
+        diagramInitialized = flowchartInitialized = false;
         editor.clearExecutionHighlights();
         editor.clearLinkedRange();
         editor.setText(progress.draft(level));
@@ -704,7 +753,7 @@ public class LanguageGame extends Application {
         level.cases().stream().limit(3).forEach(test -> cases.getItems().add(new GameResult.CaseResult(
                 test.inputs(), test.expected(), Map.of(), 0, false, "Example")));
         refreshInventory();
-        highlightFlowchartCaret();
+        highlightDiagramCaret();
         saveDelay.playFromStart();
     }
 
@@ -783,10 +832,10 @@ public class LanguageGame extends Application {
         if (currentIndex < 0) return;
         LanguageVersion version = GameLanguage.editingVersionFor(current(), progress.features(), editor.getText());
         editor.setLanguageVersion(version);
-        editorVersion.setText(GameWorld.usesFlowcharts(current())
-                ? message(FLOWCHART_EDITOR) + " " + message(version == LanguageVersion.BEFORE_DO_WHILE ? EARLY_EDITOR : STRUCTURED_VERSION)
-                : message(GameWorld.usesDiagrams(current()) ? STRUCTURED_EDITOR
-                    : version == LanguageVersion.BEFORE_DO_WHILE ? EARLY_EDITOR : STRUCTURED_VERSION));
+        editorVersion.setText(GameWorld.usesDiagrams(current()) ? message(STRUCTURED_EDITOR)
+                : GameWorld.usesFlowcharts(current())
+                    ? message(FLOWCHART_EDITOR) + " " + message(version == LanguageVersion.BEFORE_DO_WHILE ? EARLY_EDITOR : STRUCTURED_VERSION)
+                    : message(version == LanguageVersion.BEFORE_DO_WHILE ? EARLY_EDITOR : STRUCTURED_VERSION));
     }
 
     private static Label newNotice(String id) {
@@ -941,6 +990,7 @@ public class LanguageGame extends Application {
         editor.setEditable(!running);
         diagram.setDisable(running);
         flowchart.setDisable(running);
+        diagramMode.setDisable(running || currentIndex < 0 || !GameWorld.usesDiagrams(current()));
         insertHelpers.setDisable(running || !progress.features().contains(GameFeature.MACROS));
         next.setDisable(running || nextLevelIndex() < 0);
     }
@@ -966,6 +1016,7 @@ public class LanguageGame extends Application {
             return;
         }
         grammarHighlights = Set.of();
+        structuredDiagramMode = "Nassi–Shneiderman";
         // Do not copy the old editor back into the freshly cleared progress in showLevel.
         currentIndex = -1;
         selecting = true;

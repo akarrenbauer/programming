@@ -84,6 +84,51 @@ public final class GameDebugSessionTest {
             require(!check(array, "var input=0; var out[1]=0; begin: HALT;", ALL).passed(), "Check still enforces array ports");
         });
 
+        test("inspection includes unused globals every array cell and runtime local declarations", () -> {
+            String source = "var input=0; var out=0; var extra=4; var single[1]=2;\nbegin:\n"
+                    + "var work=3;\nvar cells[2]=1;\nINC cells[1]; HALT;";
+            GameDebugSession session = prepare(level(List.of(example(5, 0)), 100), source, ALL);
+            Map<String, Integer> names = session.getNamedAddresses();
+            require(names.keySet().containsAll(List.of("input", "out", "extra", "single[0]")) && names.size() == 7,
+                    "all global and local source cells are named, including single-element arrays");
+            String work = names.keySet().stream().filter(name -> name.startsWith("work @")).findFirst().orElseThrow();
+            String first = names.keySet().stream().filter(name -> name.startsWith("cells[0] @")).findFirst().orElseThrow();
+            String second = names.keySet().stream().filter(name -> name.startsWith("cells[1] @")).findFirst().orElseThrow();
+            require(value(session, work) == 3 && value(session, first) == 1, "local rows expose the compiler's actual initial cell values");
+            require(names.keySet().stream().allMatch(name -> session.getVariableSource(name) != null), "every declared cell has source provenance");
+            require(textAt(session, session.getVariableSource(work).location()).equals("var work=3;"), "local row links to its real declaration");
+            run(session);
+            require(value(session, "extra") == 4 && value(session, "single[0]") == 2 && value(session, work) == 3
+                    && value(session, first) == 1 && value(session, second) == 2, "inspection follows each allocated cell's executed value");
+            session.restart();
+            require(session.getNamedAddresses().equals(names) && value(session, work) == 3 && value(session, second) == 1,
+                    "restart retains names while restoring local memory");
+        });
+
+        test("macro-local arrays and shadowed names retain separate allocations and caller provenance", () -> {
+            String library = "void helper(value) {\nvar out=2;\nvar temp[1]=1;\nINC out;\nINC temp[0];\nINC value;\n}\n";
+            for (boolean globalOutput : List.of(false, true)) {
+                String source = "import \"toolbox\";\nvar input=0;\n" + (globalOutput ? "var out=0;\n" : "")
+                        + "begin:\nhelper(input);\nhelper(input);\nHALT;";
+                GameDebugSession session = GameDebugSession.prepare(level(List.of(example(5, 0)), 100), source, ALL,
+                        Map.of("toolbox", library), 0, () -> false);
+                List<String> outputs = session.getNamedAddresses().keySet().stream().filter(name -> name.startsWith("out @")).toList();
+                List<String> arrays = session.getNamedAddresses().keySet().stream().filter(name -> name.startsWith("temp[0] @")).toList();
+                require(outputs.size() == 2 && arrays.size() == 2, "each macro expansion exposes its own local scalar and one-element array");
+                require(outputs.stream().map(session::getVariableSource).map(SourceTrace::callers).distinct().count() == 2,
+                        "repeated calls keep distinct source caller chains");
+                require(outputs.stream().allMatch(name -> session.getVariableSource(name).location().file().equals(Path.of("toolbox", "toolbox"))),
+                        "local declarations retain the imported source");
+                require(session.getNamedAddresses().containsKey("out") == globalOutput, "locals never impersonate a global output port");
+                run(session);
+                require(outputs.stream().allMatch(name -> value(session, name) == 3)
+                        && arrays.stream().allMatch(name -> value(session, name) == 2) && value(session, "input") == 7,
+                        "each invocation's local values follow its own physical cells");
+                require(session.getOutputValues().equals(globalOutput ? Map.of("out", 0) : Map.of()),
+                        "inspecting locals preserves output contracts and undefined outputs");
+            }
+        });
+
         test("syntax-practice starters debug without satisfying completion contracts", () -> {
             Set<GameFeature> earned = EnumSet.noneOf(GameFeature.class);
             for (GameLevel level : GameCatalog.levels()) {

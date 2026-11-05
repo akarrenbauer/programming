@@ -551,6 +551,28 @@ public final class FlowchartDragTest {
                 });
             });
 
+            check("structured worlds accept real drags for each earned control without creating jumps", () -> {
+                String starter = "// Preserve structured setup.\nvar n=0;\nbegin:\nHALT;\n";
+                for (String kind : new String[] {"if", "while", "do-while"}) {
+                    onFx(() -> {
+                        reset(starter, EnumSet.allOf(GameFeature.class), LanguageVersion.STRUCTURED);
+                        view.setExplicitJumpsAllowed(false);
+                        require(view.lookup("#flowchart-tool-diamond") == null, "structured palette has no explicit jump tool");
+                    });
+                    drag("flowchart-tool-" + kind, "flowchart-main-gap");
+                    onFx(() -> {
+                        StructuredDiagram document = StructuredDiagram.parse(changed.get());
+                        require(document.main().nodes().size() == 2
+                                && document.main().nodes().get(0).kind().name().equals(kind.toUpperCase().replace('-', '_')),
+                                "real drag inserts the selected structured control");
+                        require(view.isSynchronized() && !changed.get().contains("JNZ")
+                                && view.lookupAll(".flowchart-jump-handle").isEmpty()
+                                && view.lookupAll(".flowchart-head-target").isEmpty(),
+                                "structured insertion retains the jump ban and has no retarget controls");
+                    });
+                }
+            });
+
             check("invalid or busy views block real jump-head drags", () -> {
                 String source = "var n=1;\nbegin:\ntop: NOP;\nJNZ n top;\nfinish: HALT;\n";
                 for (boolean invalid : new boolean[] {true, false}) {
@@ -577,6 +599,7 @@ public final class FlowchartDragTest {
 
     private static void reset(String source, Set<GameFeature> features, LanguageVersion version) {
         view.resetContext();
+        view.setExplicitJumpsAllowed(true);
         view.setZoomFactor(1);
         view.setDisable(false);
         view.setFeatures(features);

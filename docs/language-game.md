@@ -106,24 +106,39 @@ code, including macro bodies and imports. Use the earned control structures;
 the compiler still emits machine jumps internally. Both **Check solution** and
 **Debug** enforce the selected world's rule.
 
-**World 2 and later** replace the flowchart with an editable
-**Nassi–Shneiderman diagram**, still beside the code. Stacked boxes show the sequence, split boxes show an `if/else`,
-and enclosing boxes show loops. Changes in either view update the same draft.
-The grammar also reflects the current world's available instructions. Returning
-to World 1 restores its flowchart and explicit jumps; each level keeps its own
-saved source, with no separate diagram file.
+**World 2 and later** offer **Nassi–Shneiderman** and **Flowchart** in the diagram
+selector beside the source. Nassi–Shneiderman is the initial choice: stacked
+boxes show the sequence, split boxes show an `if/else`, and enclosing boxes show
+loops. The flowchart shows the same structured program as decisions and arrows.
+Its toolbox inserts earned control structures; loop destinations stay fixed,
+and explicit `JNZ` remains prohibited. Both views edit the same source draft.
+Switching views preserves undo history and pending diagram fields while the
+source is unchanged. Your choice for later worlds is remembered for the current
+session, including after replaying World 1; restarting the application selects
+Nassi–Shneiderman again. The grammar reflects the current world's available
+instructions. Returning to World 1 restores its flowchart and explicit jumps;
+each level keeps its own saved source, with no separate diagram file.
 
 Choose a world in **Your journey**; locked worlds open as you finish the earlier
 levels. Use **Enter world** at a boundary to continue. In a diagram statement,
 **Enter** at the beginning inserts a statement before it, **Enter** at the end
 inserts one after it, and **Enter** in the middle applies the edit. The trash
-can deletes the selected block. In a Nassi–Shneiderman diagram, drag an **if**,
-**while**, or **do/while** symbol from the toolbox into a gap or an empty branch.
+can deletes the selected block. From World 2 onward, drag an **if**,
+**while**, or **do/while** symbol from either diagram's toolbox into a gap or an empty branch.
 You can also select a symbol
 and activate the insertion point using the keyboard. In a Nassi–Shneiderman
 diagram, an empty else branch is crossed out; inserting into it creates the
 corresponding source branch.
 Expand **Declarations and helpers** to edit program setup.
+
+Use **Undo** and **Redo** above the source to reverse or restore a source edit,
+including an applied edit from either diagram. Alternatively, click in the
+source and press **Ctrl+Z** to undo (**Cmd+Z** on macOS). Redo is
+**Ctrl+Shift+Z** on Linux, **Ctrl+Y** on Windows, or **Cmd+Shift+Z** on macOS;
+the source's right-click menu also offers both actions. While a diagram text
+field has focus, its keyboard undo affects that field's pending text. Apply the
+edit with **Enter** in the middle of the field to update the shared source;
+unapplied field text is not part of the saved draft.
 
 In either diagram editor, only earned syntax is accepted. If source edits no longer compile, the last valid diagram stays visible and
 damaged structures turn red. The retained diagram is read-only until the source
@@ -198,9 +213,19 @@ complete the rewrite.
 
 Use **Step** for one machine instruction or **Step statement** to advance to the
 next source range. **Run** executes in bounded batches; click **Pause** to stop
-and inspect memory, the instruction pointer `i`, named values, and the
-highlighted source. Source tabs include imported
-helpers, with macro-call provenance. Restart returns to the same initial input.
+and inspect memory, the instruction pointer `i`, and the highlighted source.
+The **Variables** table includes declared globals, each array element, and
+allocated local variables, including those in expanded macros. Local names
+include their memory address so shadowed declarations and separate expansions
+of the same macro remain distinguishable, for example `scratch[0] @8`. Hover
+over a row to see its declaration location and macro-call chain.
+**Now** updates as execution advances;
+**Input** and **Expected** show the selected test case's contract values where
+applicable. Other variables have no contract values, and an undeclared required
+output remains visible without an address or current value.
+Source tabs include imported helpers, with macro-call provenance. Compiler
+scratch cells remain available in the raw memory table.
+**Restart** restores the initial memory and variable values for the same case.
 The debugger reuses the machine and source-editor components of the simulator;
 its source is read-only, so editing the game draft cannot invalidate a running
 snapshot. Debugging never awards completion. Return to **Check solution** when

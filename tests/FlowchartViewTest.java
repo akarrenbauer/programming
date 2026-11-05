@@ -590,6 +590,55 @@ public final class FlowchartViewTest {
                 draft.setText("DEC n;");
                 require(!view.getStatusText().contains("pending") && changes.isEmpty(), "restoring the original text immediately restores synchronized status");
             });
+            check("structured mode rejects jumps and removes jump editing without losing unchanged drafts", () -> {
+                String code = "var n=2;\nbegin:\nagain: do { DEC n; } while (n != 0);\nHALT;\n";
+                reset(code, EnumSet.allOf(GameFeature.class), LanguageVersion.STRUCTURED);
+                view.setExplicitJumpsAllowed(false); view.applyCss(); view.layout();
+                require(view.isSynchronized() && !view.getGraph().document().allowsExplicitJumps(), "structured mode renders with the world's validation policy");
+                require(view.lookup("#flowchart-tool-diamond") == null && view.lookupAll(".flowchart-jump-handle").isEmpty()
+                        && view.lookupAll(".flowchart-jump-head").isEmpty() && view.lookupAll(".flowchart-head-target").isEmpty()
+                        && view.lookupAll(".flowchart-label-edit").isEmpty(), "structured mode offers no jump insertion, label editors or retarget controls");
+                require(view.lookupAll(".flowchart-loop-return").size() == 1, "structured loop keeps its return arrow");
+                TextInputControl draft = field("DEC n;"); draft.setText("INC n;");
+                view.setExplicitJumpsAllowed(false); view.setSource(code);
+                require(field("INC n;") == draft && view.getSource().equals(code) && changes.isEmpty(), "unchanged policy preserves the pending field and source");
+                draft.setText("JNZ n again;"); enter(draft, 2);
+                require(view.getSource().equals(code) && changes.isEmpty() && view.getStatusText().contains("suspended"), "instruction edits cannot bypass the world's jump ban");
+                view.resetContext(); view.setSource(LOOP);
+                require(!view.isSynchronized() && view.getStatusText().contains("suspended"), "context reset retains the configured structured policy");
+                view.setValidator(FlowchartViewTest::documentValidation);
+                require(!view.isSynchronized() && view.getStatusText().contains("suspended"), "custom validation cannot re-enable prohibited jumps");
+                view.setExplicitJumpsAllowed(true);
+                require(view.isSynchronized() && view.lookup("#flowchart-tool-diamond") != null
+                        && !view.lookupAll(".flowchart-jump-handle").isEmpty(), "returning to foundations restores jump validation and editing");
+            });
+            check("structured palette inserts earned control structures and supports else branches", () -> {
+                String code = "// keep setup\nvar n=2;\nbegin:\nHALT;\n";
+                for (String kind : List.of("if", "while", "do-while")) {
+                    reset(code, EnumSet.allOf(GameFeature.class), LanguageVersion.STRUCTURED);
+                    view.setExplicitJumpsAllowed(false);
+                    view.lookup("#flowchart-tool-" + kind).executeAccessibleAction(AccessibleAction.FIRE);
+                    view.lookup("#flowchart-main-gap").executeAccessibleAction(AccessibleAction.FIRE);
+                    StructuredDiagram parsed = StructuredDiagram.parse(view.getSource());
+                    require(view.isSynchronized() && parsed.main().nodes().size() == 2
+                            && parsed.main().nodes().get(0).kind().name().equals(kind.toUpperCase().replace('-', '_'))
+                            && !view.getSource().contains("JNZ") && view.getSource().startsWith("// keep setup\nvar n=2;"), "structured " + kind + " insertion preserves the source and jump ban");
+                    require(changes.size() == 1, "inserting a structure emits one source transaction");
+                    if (kind.equals("if")) {
+                        view.lookup("#flowchart-else-" + parsed.main().nodes().get(0).start()).executeAccessibleAction(AccessibleAction.FIRE);
+                        require(StructuredDiagram.parse(view.getSource()).main().nodes().get(0).alternative().nodes().size() == 1,
+                                "earned else branch can be added through its separate insertion gap");
+                    }
+                }
+                reset(code, Set.of(GameFeature.BLOCKS, GameFeature.IF), LanguageVersion.STRUCTURED);
+                view.setExplicitJumpsAllowed(false);
+                require(view.lookup("#flowchart-tool-if") != null && view.lookup("#flowchart-tool-while") == null
+                        && view.lookup("#flowchart-tool-do-while") == null && view.lookupAll(".flowchart-tool").size() == 2,
+                        "structured toolbox exposes only earned controls and the statement tool");
+                view.lookup("#flowchart-tool-if").executeAccessibleAction(AccessibleAction.FIRE);
+                view.lookup("#flowchart-main-gap").executeAccessibleAction(AccessibleAction.FIRE);
+                require(view.isSynchronized() && view.getSource().contains("NOP;"), "structure template works before empty statements are earned");
+            });
             check("diagram zoom scales shapes and hit areas without changing focused drafts or source spans", () -> {
                 reset(LOOP, Set.of(), LanguageVersion.BEFORE_DO_WHILE);
                 view.setZoomFactor(1); view.applyCss(); view.layout();
@@ -613,8 +662,12 @@ public final class FlowchartViewTest {
             });
             String screenshot = System.getProperty("flowchart.screenshot");
             if (screenshot != null) onFx(() -> {
-                reset(LOOP, Set.of(), LanguageVersion.BEFORE_DO_WHILE);
-                view.setRuntimeValues(Map.of(LOOP.indexOf("var n"), "3"));
+                boolean structured = Boolean.getBoolean("flowchart.screenshot.structured");
+                String source = structured ? "var n=2;\nbegin:\nif (n == 0) { INC n; }\ndo { DEC n; } while (n != 0);\nHALT;\n" : LOOP;
+                reset(source, structured ? EnumSet.allOf(GameFeature.class) : Set.of(),
+                        structured ? LanguageVersion.STRUCTURED : LanguageVersion.BEFORE_DO_WHILE);
+                view.setExplicitJumpsAllowed(!structured);
+                view.setRuntimeValues(Map.of(source.indexOf("var n"), "3"));
                 ((TitledPane) view.lookup("#flowchart-preamble")).setExpanded(false);
                 view.applyCss(); view.layout();
                 javafx.scene.image.WritableImage image = stage.getScene().snapshot(null);
@@ -628,6 +681,7 @@ public final class FlowchartViewTest {
     }
     private static void reset(String source, Set<GameFeature> features, LanguageVersion version) {
         view.resetContext(); view.setValidator(null); view.setDisable(false); view.setTaskLanguage(GameTaskLanguage.ENGLISH);
+        view.setExplicitJumpsAllowed(true);
         view.setLanguageVersionResolver(ignored -> version); view.setLanguageVersion(version); view.setFeatures(features); view.setLibraries(Map.of()); view.setSource(source);
         changes.clear(); focusedRanges.clear(); view.applyCss(); view.layout();
     }

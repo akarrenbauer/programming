@@ -28,6 +28,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TableColumn;
+import javafx.scene.control.TableRow;
 import javafx.scene.control.TableView;
 import javafx.scene.image.WritableImage;
 import javafx.scene.layout.FlowPane;
@@ -90,6 +91,10 @@ public final class GameDebuggerTest {
         GameDebugSession newForm = prepare(rewrite,
                 "var dummy=0; var x=0; begin: INC dummy; ; do { DEC x; } while(x!=0); HALT;",
                 EnumSet.allOf(GameFeature.class), Map.of(), 0);
+        GameDebugSession allVariables = prepare(level("variables", List.of(example(0, Map.of("out", 0, "input", 2))), 200),
+                "import \"toolbox\";\nvar input=0;\nvar spare=4;\nvar buffer[2]=1;\nbegin:\nvar work=3;\nINC work;\nhelper(input);\nhelper(input);\nINC buffer[1];\nHALT;\n",
+                EnumSet.allOf(GameFeature.class), Map.of("toolbox",
+                        "void helper(value) {\nvar out=2;\nvar temp[1]=1;\nINC out;\nINC temp[0];\nINC value;\n}\n"), 0);
 
         AtomicReference<Throwable> asynchronousError = new AtomicReference<>();
         Thread.UncaughtExceptionHandler previousHandler = Thread.getDefaultUncaughtExceptionHandler();
@@ -169,6 +174,38 @@ public final class GameDebuggerTest {
                 expectRange(editor(MAIN), "INC out;");
                 expectMemory("out", 0);
                 expectState();
+            });
+
+            checkFx("Variables shows non-port globals arrays and each local allocation through step and restart", () -> {
+                open(allVariables);
+                expect(node("debug-variables-title", Label.class).getText().equals("Variables"), "inspection identifies the complete variable table");
+                expect(ports().getItems().containsAll(session.getNamedAddresses().keySet()) && ports().getItems().contains("out")
+                        && ports().getItems().size() == 10, "every declared cell and undefined expected output has a visible table row");
+                expect(tableValue(ports(), "Now", "spare").equals("4") && tableValue(ports(), "Now", "buffer[0]").equals("1")
+                        && tableValue(ports(), "Input", "spare").equals("—") && tableValue(ports(), "Expected", "spare").equals("—"),
+                        "ordinary variables show their live value without invented input or output expectations");
+                String work = ports().getItems().stream().filter(name -> name.startsWith("work @")).findFirst().orElseThrow();
+                expect(tableValue(ports(), "Now", work).equals("3"), "main-local row uses its allocated initial value");
+                button("debug-step").fire();
+                expect(tableValue(ports(), "Now", work).equals("2"), "single instruction refreshes a non-port local cell");
+                while (!session.isStopped()) button("debug-statement-step").fire();
+                expect(tableValue(ports(), "Now", work).equals("4") && tableValue(ports(), "Now", "buffer[1]").equals("2"),
+                        "local and array values refresh through statement stepping");
+                List<String> localOutputs = ports().getItems().stream().filter(name -> name.startsWith("out @")).toList();
+                expect(localOutputs.size() == 2 && localOutputs.stream().allMatch(name -> tableValue(ports(), "Now", name).equals("3")
+                        && tableValue(ports(), "Expected", name).equals("—")), "each macro call has a distinct local value without inheriting the output contract");
+                expect(tableValue(ports(), "Now", "out").equals("undefined") && tableValue(ports(), "Expected", "out").equals("0"),
+                        "a macro-local name does not hide an undefined global output");
+                layout();
+                expect(ports().lookupAll(".table-row-cell").stream().filter(TableRow.class::isInstance).map(TableRow.class::cast)
+                        .anyMatch(row -> row.getTooltip() != null && row.getTooltip().getText().startsWith("Declared at ")),
+                        "variable rows expose declaration provenance");
+                String variableScreenshot = System.getProperty("debug.variables.screenshot");
+                if (variableScreenshot != null) writeSnapshot(Path.of(variableScreenshot));
+                button("debug-restart").fire();
+                expect(tableValue(ports(), "Now", work).equals("3") && tableValue(ports(), "Now", "buffer[1]").equals("1")
+                        && localOutputs.stream().allMatch(name -> tableValue(ports(), "Now", name).equals("2")),
+                        "restart refreshes all source variables from the original memory image");
             });
 
             checkFx("old and rewritten loops display their selected language in the debugger", () -> {

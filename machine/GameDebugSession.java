@@ -3,6 +3,7 @@ package machine;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -10,6 +11,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.function.BooleanSupplier;
+import java.util.regex.Pattern;
 
 /** One isolated, bounded execution of a frozen game submission and selected test case. */
 public final class GameDebugSession {
@@ -33,6 +35,7 @@ public final class GameDebugSession {
     private final LanguageVersion languageVersion;
     private final Map<String, Integer> outputs;
     private final Map<String, Integer> cells;
+    private final Map<Integer, SourceTrace> declarations;
     private final int maxSteps;
     private final Machine machine = new Machine();
     private Status status;
@@ -81,7 +84,23 @@ public final class GameDebugSession {
         this.program = compiled.program();
         this.languageVersion = compiled.version();
         this.outputs = compiled.outputs();
-        this.cells = compiled.cells();
+        Map<String, Integer> named = new LinkedHashMap<>(compiled.cells());
+        Set<Integer> namedAddresses = new HashSet<>(named.values());
+        Map<Integer, SourceTrace> sources = new LinkedHashMap<>();
+        for (CompilationResult.Variable variable : program.variables()) {
+            boolean array = variable.length() > 1 || isArray(variable);
+            for (int index = 0; index < variable.length(); index++) {
+                int address = variable.address() + index;
+                sources.put(address, variable.source());
+                if (namedAddresses.add(address)) {
+                    String name = variable.name() + (array ? "[" + index + "]" : "");
+                    // Macro expansion allocates separate cells; a local may also shadow a global test port.
+                    named.put(name + " @" + address, address);
+                }
+            }
+        }
+        this.cells = Collections.unmodifiableMap(named);
+        this.declarations = Collections.unmodifiableMap(sources);
         this.maxSteps = Math.max(0, maxSteps);
         restart();
     }
@@ -92,6 +111,8 @@ public final class GameDebugSession {
     public CompilationResult getProgram() { return program; }
     public LanguageVersion getLanguageVersion() { return languageVersion; }
     public Map<String, Integer> getNamedAddresses() { return cells; }
+    /** Source declaration and caller chain for a named cell; undefined test ports have no declaration. */
+    public SourceTrace getVariableSource(String name) { return declarations.get(cells.get(name)); }
     public Status getStatus() { return status; }
     public String getMessage() { return message; }
     public int getStepCount() { return machine.getStepCounter(); }
@@ -99,6 +120,14 @@ public final class GameDebugSession {
     public int getInstructionPointer() { return machine.getInstructionPointer(); }
     public int getMemorySize() { return machine.getMemorySize(); }
     public boolean isStopped() { return status != Status.READY; }
+
+    private boolean isArray(CompilationResult.Variable variable) {
+        SourceLocation location = variable.source().location();
+        String source = program.sources().get(location.file());
+        if (source == null) return false;
+        String declaration = source.substring(location.startOffset(), location.endOffset()).replaceAll("(?m)//[^\\r\\n]*", " ");
+        return Pattern.compile("\\bvar\\s+" + Pattern.quote(variable.name()) + "\\s*\\[").matcher(declaration).find();
+    }
 
     public int getMemoryValue(int address) {
         if (address < 0 || address >= getMemorySize()) throw new IndexOutOfBoundsException(address);

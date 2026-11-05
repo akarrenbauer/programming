@@ -56,9 +56,9 @@ import javafx.scene.shape.Polygon;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.shape.Shape;
 
-/** Editable, source-owned control-flow graph for the machine foundations world. */
+/** Editable, source-owned control-flow graph with the selected world's jump policy. */
 public final class FlowchartView extends javafx.scene.layout.BorderPane {
-    private enum Tool { RECTANGLE, DIAMOND }
+    private enum Tool { RECTANGLE, DIAMOND, IF, WHILE, DO_WHILE }
     private static final DataFormat FORMAT = new DataFormat("application/x-language-game-flowchart");
     private static final DataFormat HEAD_FORMAT = new DataFormat("application/x-language-game-jump-head");
     private static final Color INK = Color.web("#527180");
@@ -89,6 +89,7 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
     private LanguageVersion version = LanguageVersion.BEFORE_DO_WHILE;
     private Function<String, LanguageVersion> languageVersionResolver;
     private Function<String, DiagramValidation.Result> validator;
+    private boolean explicitJumpsAllowed = true;
     private GameTaskLanguage taskLanguage = GameTaskLanguage.ENGLISH;
     private Consumer<String> onSourceChanged = ignored -> { };
     private Consumer<IndexRange> onSourceFocused = ignored -> { };
@@ -115,8 +116,9 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
         Label title = new Label("Flowchart");
         title.setMinWidth(Region.USE_PREF_SIZE);
         title.setStyle("-fx-font-size: 11px; -fx-font-weight: bold; -fx-text-fill: #193747;");
-        title.setTooltip(new Tooltip("Drag a symbol into a gap. Enter at the start/end inserts a statement; inside applies edits. Labels and JNZ targets are editable."));
+        title.setTooltip(new Tooltip("Drag a symbol into a gap. Enter at the start/end inserts a statement; inside applies edits."));
         palette.setId("flowchart-toolbox");
+        palette.setMinWidth(0);
         for (Tool tool : Tool.values()) { VBox tile = tile(tool); tools.put(tool, tile); palette.getChildren().add(tile); }
         HBox toolbar = new HBox(8, title, palette);
         toolbar.setAlignment(Pos.CENTER_LEFT);
@@ -206,6 +208,13 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
         features = next; refreshTools(); refreshSource();
     }
 
+    /** Configures source validation and editing tools; retained across context resets. */
+    public void setExplicitJumpsAllowed(boolean allowed) {
+        if (explicitJumpsAllowed == allowed) return;
+        explicitJumpsAllowed = allowed;
+        select(null); refreshTools(); refreshSource();
+    }
+
     public void setLibraries(Map<String, String> available) {
         Map<String, String> next = Map.copyOf(available);
         if (next.equals(libraries)) return;
@@ -256,8 +265,14 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
     }
 
     private DiagramValidation.Result validate(String candidate) {
-        return validator == null ? DiagramValidation.validate(candidate, features, libraries, languageFor(candidate), true)
-                : Objects.requireNonNull(validator.apply(candidate), "validation result");
+        if (validator == null) return DiagramValidation.validate(candidate, features, libraries, languageFor(candidate), explicitJumpsAllowed);
+        DiagramValidation.Result checked = Objects.requireNonNull(validator.apply(candidate), "validation result");
+        if (explicitJumpsAllowed || !checked.valid() || !checked.diagram().allowsExplicitJumps()) return checked;
+        try {
+            return new DiagramValidation.Result(StructuredDiagram.parseDocument(candidate, checked.diagram().languageVersion(), false), List.of());
+        } catch (StructuredDiagram.ParseException error) {
+            return new DiagramValidation.Result(null, List.of(new DiagramValidation.Diagnostic(error.getMessage(), error.offset(), error.offset())));
+        }
     }
 
     public void setOnSourceFocused(Consumer<IndexRange> callback) { onSourceFocused = Objects.requireNonNull(callback, "callback"); }
@@ -928,7 +943,7 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
                 ShapeBox box = new ShapeBox(snapshot, flow, vertex); vertices.add(box); getChildren().add(box);
                 StructuredDiagram.Node owner = vertex.owner();
                 Flowchart.JumpInfo jump = flow.jumpInfo(vertex);
-                if (flow.canRetargetJump(vertex.id())) box.addEventFilter(MouseEvent.MOUSE_PRESSED, event -> selectJump(vertex.id()));
+                if (explicitJumpsAllowed && flow.canRetargetJump(vertex.id())) box.addEventFilter(MouseEvent.MOUSE_PRESSED, event -> selectJump(vertex.id()));
                 if (jump != null) {
                     Button edit = instructionButton(snapshot, flow, owner);
                     edit.addEventFilter(MouseEvent.MOUSE_PRESSED, event -> selectJump(vertex.id()));
@@ -937,7 +952,8 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
             }
             for (Flowchart.Vertex vertex : flow.vertices()) if (flow.canTarget(vertex)) {
                 Junction junction = new Junction(vertex); junctions.put(vertex.id(), junction);
-                getChildren().addAll(junction.stem, junction.stemHead, junction.circle, junction.label, junction.target);
+                getChildren().addAll(junction.stem, junction.stemHead, junction.circle, junction.label);
+                if (explicitJumpsAllowed) getChildren().add(junction.target);
                 if (junction.beginLabel != null) getChildren().add(junction.beginLabel);
             }
             sequenceDrops(snapshot.main(), null, false);
@@ -1037,7 +1053,7 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
             getChildren().add(target);
         }
         private void selectJump(int id) {
-            if (!editable(snapshot)) return;
+            if (!explicitJumpsAllowed || !editable(snapshot)) return;
             selectedJump = id;
             for (EdgeDrawing drawing : edges) if (flow.isJumpRoute(drawing.edge)) {
                 boolean selected = drawing.edge.from() == id;
@@ -1126,6 +1142,7 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
         }
 
         private Integer draggedJump(javafx.scene.input.Dragboard board) {
+            if (!explicitJumpsAllowed) return null;
             Object value = board.getContent(HEAD_FORMAT);
             if (!(value instanceof String text)) return null;
             String[] parts = text.split(":");
@@ -1137,7 +1154,7 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
         }
 
         private boolean moveHead(int jumpId, int targetId) {
-            if (!editable(snapshot) || !flow.canTarget(targetId)) return false;
+            if (!explicitJumpsAllowed || !editable(snapshot) || !flow.canTarget(targetId)) return false;
             try {
                 if (!flow.canRetargetJump(jumpId)) return false;
                 Pending pending = pending(snapshot);
@@ -1154,7 +1171,7 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
             final Circle circle = new Circle(3.5, INK);
             final Path stem = new Path();
             final Polygon stemHead = new Polygon();
-            final TextInputControl label;
+            final Region label;
             final Label beginLabel;
             final Region target = new Region();
             double x, y;
@@ -1166,12 +1183,21 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
                 if (marked) circle.getStyleClass().add("flowchart-junction");
                 stem.getStyleClass().add("flowchart-junction-stem"); stem.setUserData(vertex.id()); stem.setStroke(INK); stem.setFill(null); stem.setMouseTransparent(true); stem.setVisible(marked);
                 stemHead.getStyleClass().add("flowchart-junction-arrowhead"); stemHead.setFill(INK); stemHead.setMouseTransparent(true); stemHead.setVisible(marked && !isLoopEntry(vertex));
-                label = editField(snapshot, vertex.owner(), prefix.start(), prefix.end(), true, "label");
+                if (explicitJumpsAllowed) {
+                    TextInputControl edit = editField(snapshot, vertex.owner(), prefix.start(), prefix.end(), true, "label");
+                    if (edit instanceof TextField text) text.setAlignment(Pos.CENTER_RIGHT);
+                    edit.promptTextProperty().bind(javafx.beans.binding.Bindings.when(edit.hoverProperty().or(edit.focusedProperty())).then("label:").otherwise(""));
+                    edit.setTooltip(new Tooltip("Jump labels belong to this incoming arrow. Update matching jump names in the source or instruction editor when renaming a label."));
+                    label = edit;
+                } else {
+                    Label text = new Label(flow.labelDeclarations().stream().filter(declaration -> declaration.owner() == vertex.owner())
+                            .map(declaration -> declaration.name() + ":").collect(java.util.stream.Collectors.joining(" ")));
+                    text.setAlignment(Pos.CENTER_RIGHT);
+                    text.setMouseTransparent(true);
+                    label = text;
+                }
                 label.getStyleClass().add("flowchart-junction-label"); label.setUserData(vertex.owner().start());
                 label.setStyle("-fx-font-family: monospace; -fx-font-size: 10px; -fx-background-color: transparent;");
-                if (label instanceof TextField text) text.setAlignment(Pos.CENTER_RIGHT);
-                label.promptTextProperty().bind(javafx.beans.binding.Bindings.when(label.hoverProperty().or(label.focusedProperty())).then("label:").otherwise(""));
-                label.setTooltip(new Tooltip("Jump labels belong to this incoming arrow. Update matching jump names in the source or instruction editor when renaming a label."));
                 boolean implicitBegin = flow.isImplicitBeginTarget(vertex.id()) && flow.edges().stream().anyMatch(edge ->
                         edge.to() == vertex.id() && flow.isJumpEdge(edge) && flow.jumpInfo(edge.from()).targetLabel().equals("begin"));
                 if (implicitBegin) {
@@ -1223,7 +1249,7 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
             final Region handle;
             EdgeDrawing(Flowchart.Edge edge) {
                 this.edge = edge; path.getStyleClass().add("flowchart-edge"); arrow.getStyleClass().add("flowchart-arrowhead");
-                handle = flow.isJumpRoute(edge) && flow.canRetargetJump(edge.from()) ? new Region() : null;
+                handle = explicitJumpsAllowed && flow.isJumpRoute(edge) && flow.canRetargetJump(edge.from()) ? new Region() : null;
                 path.setUserData(edge); arrow.setUserData(edge); path.setStroke(INK); path.setStrokeWidth(1.5); path.setFill(null);
                 arrow.setFill(INK); path.setMouseTransparent(true);
                 String text = "";
@@ -1235,10 +1261,11 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
                 label = new Label(text); label.getStyleClass().add("flowchart-edge-label"); label.setUserData(edge);
                 label.setStyle("-fx-font-size: 10px; -fx-text-fill: #365367; -fx-background-color: #f3f6fa;"); label.setMouseTransparent(true);
                 if (flow.isJumpRoute(edge)) {
-                    boolean movable = flow.canRetargetJump(edge.from());
+                    boolean movable = explicitJumpsAllowed && flow.canRetargetJump(edge.from());
                     path.setMouseTransparent(false);
                     path.setOnMousePressed(event -> selectJump(edge.from()));
-                    String help = movable ? flow.jumpInfo(edge.from()) != null
+                    String help = !explicitJumpsAllowed ? "Loop return follows the structured source. Edit the loop condition to change its behavior."
+                            : movable ? flow.jumpInfo(edge.from()) != null
                             ? "Select this jump, then drag its arrowhead to move the destination label. Jumps sharing that label follow it."
                             : "Drag this loop's arrowhead to another incoming arrow to create an equivalent labeled jump."
                             : "This comparison needs more than one JNZ, so its return arrow cannot be moved here. Edit the loop condition in the source.";
@@ -1378,10 +1405,16 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
         @Override public void executeAccessibleAction(AccessibleAction action, Object... parameters) { if (action == AccessibleAction.FIRE) insertTool(selectedTool); else super.executeAccessibleAction(action, parameters); }
     }
 
-    private boolean available(Tool tool) { return tool != null; }
+    private boolean available(Tool tool) {
+        if (tool == null) return false;
+        if (tool == Tool.RECTANGLE) return true;
+        if (tool == Tool.DIAMOND) return explicitJumpsAllowed;
+        return !explicitJumpsAllowed && DiagramToolbox.available(DiagramToolbox.Kind.valueOf(tool.name()), features);
+    }
     private void refreshTools() {
         if (selectedTool != null && !available(selectedTool)) select(null);
         tools.forEach((tool, tile) -> { tile.setVisible(available(tool)); tile.setManaged(available(tool)); tile.setDisable(!available(tool)); });
+        palette.getChildren().setAll(tools.entrySet().stream().filter(entry -> available(entry.getKey())).map(Map.Entry::getValue).toList());
     }
     private void select(Tool tool) {
         selectedTool = tool;
@@ -1394,13 +1427,21 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
         };
         tile.setId("flowchart-tool-" + tool.name().toLowerCase().replace('_', '-')); tile.getStyleClass().add("flowchart-tool");
         tile.setAlignment(Pos.CENTER); tile.setFocusTraversable(true); tile.setAccessibleRole(AccessibleRole.BUTTON);
-        boolean decision = tool == Tool.DIAMOND;
-        tile.setAccessibleText(decision ? "Insert a decision diamond" : "Insert a statement rectangle");
+        boolean structured = tool != Tool.RECTANGLE && tool != Tool.DIAMOND;
+        boolean decision = tool != Tool.RECTANGLE;
+        String title = tool == Tool.DO_WHILE ? "do / while" : tool.name().toLowerCase();
+        tile.setAccessibleText(structured ? "Insert " + title + " structure" : decision ? "Insert a decision diamond" : "Insert a statement rectangle");
         Pane symbol = new Pane(); symbol.getStyleClass().add("flowchart-tool-symbol"); symbol.setMinSize(45, 28); symbol.setPrefSize(45, 28); symbol.setMaxSize(45, 28); symbol.setMouseTransparent(true);
         Shape outline = decision ? new Polygon(22.0, 2.0, 42.0, 14.0, 22.0, 26.0, 2.0, 14.0) : new Rectangle(3, 5, 38, 18);
         outline.setFill(Color.web(decision ? "#fbf4db" : "#ffffff")); outline.setStroke(INK); symbol.getChildren().add(outline);
         tile.getChildren().add(symbol);
-        Tooltip.install(tile, new Tooltip(decision ? "Decision: drag into a gap, then move its arrowhead to choose where it jumps."
+        if (structured) {
+            Label caption = new Label(title);
+            caption.setStyle("-fx-font-family: monospace; -fx-font-size: 10px; -fx-text-fill: #365367;");
+            tile.getChildren().add(caption);
+        }
+        Tooltip.install(tile, new Tooltip(structured ? "Drag " + title + " into a gap, or select it and activate a gap."
+                : decision ? "Decision: drag into a gap, then move its arrowhead to choose where it jumps."
                 : "Statement: drag into a gap, then edit the instruction."));
         tile.setOnMouseClicked(event -> { if (!tile.isDisabled()) { select(tool); tile.requestFocus(); } });
         tile.setOnKeyPressed(event -> { if (!tile.isDisabled() && (event.getCode() == KeyCode.ENTER || event.getCode() == KeyCode.SPACE)) { select(tool); event.consume(); } else if (event.getCode() == KeyCode.ESCAPE) select(null); });
@@ -1416,6 +1457,10 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
             if (matcher.find()) { variable = matcher.group(1) + (matcher.group(2) == null ? "" : "[0]"); break; }
         }
         if (variable == null) throw new IllegalArgumentException("Declare a condition variable in the code before inserting a control structure.");
+        if (tool != Tool.DIAMOND) {
+            return DiagramToolbox.template(DiagramToolbox.Kind.valueOf(tool.name()), variable)
+                    .replace("\n  ;\n", "\n  " + placeholder() + "\n");
+        }
         if (tool == Tool.DIAMOND) {
             String label = graph.labels().keySet().stream().filter(name -> graph.labelInfo(name) != null).findFirst().orElse(null);
             if (label != null) return "JNZ " + variable + " " + label + ";";

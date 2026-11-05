@@ -37,8 +37,9 @@ public enum GameWorld {
         return world != null && world.structured;
     }
 
+    /** Flowcharts are available throughout the curriculum, independently of jump policy. */
     public static boolean usesFlowcharts(GameLevel level) {
-        return forLevel(level) == MACHINE_FOUNDATIONS;
+        return forLevel(level) != null;
     }
 
     public static boolean hasStructuredControls(Set<GameFeature> available) {

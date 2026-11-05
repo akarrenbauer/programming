@@ -27,9 +27,14 @@ for explicit `JNZ` jumps. Its toolbox has only a rectangle and a diamond;
 move jump heads to choose a backward loop or a forward branch. A `do/while`
 loop displays its body and trailing decision as in its jump translation.
 Once `do/while`, `if/else`, and `while` have been earned,
-World 2 switches to Nassi–Shneiderman diagrams and suspends explicit `JNZ`.
-Both diagram types edit the same source draft and follow the tools available in
-the selected lesson. If a draft becomes invalid, its last valid diagram stays
+World 2 starts with Nassi–Shneiderman diagrams and offers **Nassi–Shneiderman**
+or **Flowchart** in the diagram selector. Explicit `JNZ` remains suspended in
+both views; the later-world flowchart uses structured insertion tools and fixed
+loop destinations. Both diagram types edit the same source draft and follow the
+tools available in the selected lesson. **Undo** and **Redo** above the source
+also reverse and restore applied diagram edits. With the source focused,
+**Ctrl+Z** undoes and **Ctrl+Shift+Z** redoes on Linux.
+If a draft becomes invalid, its last valid diagram stays
 visible with damaged structures marked red until the code is corrected.
 
 Progress and drafts save in `~/.language-game/progress.properties`, independently
