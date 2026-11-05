@@ -97,6 +97,9 @@ The simulator always uses the final **Structured** grammar, including
 `do { ... } while (...);` loops. The word `do` is reserved and cannot be a label
 or other identifier. The Language Game selects earlier grammar versions where
 needed for its teaching exercises; see [language versions](docs/language.md#language-versions).
+Conditions compare any two values with `==` or `!=`, including variables and
+literal-index array elements. Both values are preserved, and loops read them
+again at each test. In the game, these forms require **General comparisons**.
 
 ## Play the Language Game
 
@@ -119,7 +122,7 @@ element highlights its source lines; moving the source cursor highlights the
 matching element.
 Once `do/while`, `if/else`, and `while` are unlocked, enter **Structured
 programming**: explicit `JNZ` is suspended, and the diagram initially shows
-**Nassi–Shneiderman**. From this world onward, use the diagram selector to choose
+**Nassi–Shneiderman**. From this world onward, use the selector in the diagram toolbox to choose
 **Nassi–Shneiderman** or **Flowchart** beside the code. Both edit the same draft
 and enforce structured control flow; the later-world flowchart offers structured
 insertion tools instead of movable jump destinations. **Undo** and **Redo** above

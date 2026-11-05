@@ -69,7 +69,9 @@ public final class GameGrammar {
 
         List<Fragment> declaration = new ArrayList<>(symbols(null, "var @Identifier"));
         if (features.contains(ARRAYS)) declaration.addAll(arraySuffix());
-        declaration.addAll(symbols(null, "= @Value"));
+        declaration.addAll(symbols(null, "="));
+        declaration.addAll(symbols(features.contains(COPYING) ? COPYING : null,
+                features.contains(COPYING) ? "@Value" : "@Number"));
         rules.add(rule("VariableDeclaration", new Alternative("declaration", declaration)));
 
         List<Alternative> statements = new ArrayList<>(List.of(
@@ -99,7 +101,10 @@ public final class GameGrammar {
         rules.add(new Production("Command", commands));
 
         List<Alternative> values = new ArrayList<>(List.of(alternative("number", null, "@Number")));
-        if (features.contains(COPYING)) values.add(alternative("variable", COPYING, "@Variable"));
+        if (features.contains(COMPARISONS) || features.contains(COPYING)) {
+            values.add(new Alternative("variable", List.of(new Fragment("Variable", Kind.NONTERMINAL,
+                    Set.of(COMPARISONS, COPYING)))));
+        }
         rules.add(new Production("Value", values));
         List<Fragment> variable = new ArrayList<>(symbols(null, "@Identifier"));
         if (features.contains(ARRAYS)) variable.addAll(arraySuffix());
@@ -113,19 +118,14 @@ public final class GameGrammar {
             for (String operator : List.of("==", "!=")) {
                 List<Fragment> condition = new ArrayList<>();
                 boolean general = features.contains(COMPARISONS);
-                boolean value = general && features.contains(COPYING);
                 Set<GameFeature> leftFeatures = EnumSet.copyOf(controls);
-                if (value) { leftFeatures.add(COMPARISONS); leftFeatures.add(COPYING); }
-                condition.add(new Fragment(value ? "Value" : "Variable", Kind.NONTERMINAL, leftFeatures));
+                if (general) leftFeatures.add(COMPARISONS);
+                condition.add(new Fragment(general ? "Value" : "Variable", Kind.NONTERMINAL, leftFeatures));
                 condition.add(new Fragment(operator, Kind.TERMINAL, controls));
                 Set<GameFeature> rightFeatures = EnumSet.copyOf(controls);
                 if (general) rightFeatures.add(COMPARISONS);
-                condition.add(new Fragment(general ? "Number" : "0", general ? Kind.NONTERMINAL : Kind.TERMINAL, rightFeatures));
+                condition.add(new Fragment(general ? "Value" : "0", general ? Kind.NONTERMINAL : Kind.TERMINAL, rightFeatures));
                 conditions.add(new Alternative(operator, condition));
-            }
-            if (features.contains(COMPARISONS) && !features.contains(COPYING)) {
-                conditions.add(alternative("literal-eq", COMPARISONS, "@Number == @Number"));
-                conditions.add(alternative("literal-neq", COMPARISONS, "@Number != @Number"));
             }
             rules.add(new Production("Condition", conditions));
         }

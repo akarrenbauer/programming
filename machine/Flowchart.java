@@ -233,7 +233,7 @@ public final class Flowchart {
     }
 
     private static boolean directlyLowerable(ComparisonInfo condition) {
-        return condition.canonicalNotEqual() && condition.rightText().chars().allMatch(c -> c == '0')
+        return condition.canonicalNotEqual() && condition.rightText().matches("0+")
                 && !Character.isDigit(condition.operandText().charAt(0));
     }
 
@@ -335,9 +335,12 @@ public final class Flowchart {
             while (!condition.get(operator).text.equals("==") && !condition.get(operator).text.equals("!=")) ++operator;
             StringBuilder operand = new StringBuilder();
             for (int index = 0; index < operator; index++) operand.append(condition.get(index).text);
-            Lexeme op = condition.get(operator), right = condition.get(operator + 1);
+            StringBuilder right = new StringBuilder();
+            for (int index = operator + 1; index < condition.size(); index++) right.append(condition.get(index).text);
+            Lexeme op = condition.get(operator);
             comparison = new ComparisonInfo(node, new SourceSpan(condition.get(0).span.start, condition.get(operator - 1).span.end),
-                    op.span, right.span, operand.toString(), right.text, op.text.equals("!="));
+                    op.span, new SourceSpan(condition.get(operator + 1).span.start, condition.get(condition.size() - 1).span.end),
+                    operand.toString(), right.toString(), op.text.equals("!="));
         }
         return new NodeSyntax(prefix, statement, List.copyOf(labels), jump, comparison, first.text.equals("HALT"));
     }

@@ -349,7 +349,7 @@ public final class StructuredDiagram {
             Token open = need("(");
             value(false);
             if (!accept("==") && !accept("!=")) throw failure("Conditions use == or !=.", peek().start);
-            numeric();
+            value(false);
             Token close = need(")");
             return new Condition(open.end, close.start);
         }

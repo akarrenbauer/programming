@@ -124,7 +124,7 @@ public final class GameCatalog {
 
         levels.add(level("equals-three", STRUCTURED, "Build an equality test",
                 "Use a while loop to count and restore n. Set equal to 1 exactly when n is 3; all other inputs need equal = 0.",
-                "Only comparisons with zero are available so far. Count against a three-unit budget and remember whether the input exceeded it. This earns comparisons with any natural-number literal.",
+                "Only comparisons with zero are available so far. Count against a three-unit budget and remember whether the input exceeded it. This earns comparisons between values: variables or natural-number literals on either side.",
                 starter("var n = 0;\nvar equal = 0;\nvar saved = 0;\nvar work = 0;\nvar budget = 3;\nvar excess = 0;\n", "Compare by counting, then restore n."),
                 hints("Move n into both saved and work, then move saved back into n.", "For each unit of work, decrease budget if possible; otherwise count excess.", "Equality requires both budget and excess to be zero. Testing only budget would also accept inputs above three."),
                 Set.of(COMPARISONS), Set.of(WHILE), Map.of(),

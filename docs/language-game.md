@@ -107,7 +107,8 @@ the compiler still emits machine jumps internally. Both **Check solution** and
 **Debug** enforce the selected world's rule.
 
 **World 2 and later** offer **Nassi–Shneiderman** and **Flowchart** in the diagram
-selector beside the source. Nassi–Shneiderman is the initial choice: stacked
+selector at the start of the diagram toolbox, in place of the diagram type label.
+Nassi–Shneiderman is the initial choice: stacked
 boxes show the sequence, split boxes show an `if/else`, and enclosing boxes show
 loops. The flowchart shows the same structured program as decisions and arrows.
 Its toolbox inserts earned control structures; loop destinations stay fixed,
@@ -242,7 +243,7 @@ source tokens, including literal braces. These are the conventions used in the
 &emsp;{ *VariableDeclaration* `;` } `begin:` { *Statement* }
 
 *VariableDeclaration*:<br>
-&emsp;`var` *Identifier* `=` *Value*
+&emsp;`var` *Identifier* `=` *Number*
 
 *Statement*:<br>
 &emsp;*Command* `;`<br>
@@ -277,9 +278,15 @@ have been earned. The editor identifies and highlights the applicable version.
 
 Labels and jumps provide the construction tools for the first world. Once
 all structured control flow is earned, the next world suspends explicit `JNZ`;
-labels remain accepted, but cannot be used for explicit jumps there. Zero tests unlock before
-general comparisons. Even after all unlocks, a condition's right-hand side is a
-literal, not another variable, and array indices are literals too.
+labels remain accepted, but cannot be used for explicit jumps there. Zero tests
+unlock before general comparisons. The **General comparisons** unlock allows
+`==` and `!=` between any two values: variables, numeric literals, or array
+elements once arrays are earned. For example, `left == right`, `cells[1] != limit`,
+and `3 == count` preserve both operands. Comparing the same cell is valid, and
+loops read both values again on every test. Array indices remain numeric
+literals. Copying a value into a declaration, such as `var copy = original;`,
+still requires the separate **Variable initializers** unlock; general comparisons do
+not enable reference initializers.
 
 ## The journey
 
@@ -343,9 +350,9 @@ in the Moodle book. The
 | 6 | Use `if` to produce one of two results | `else` |
 | 7 | Use `if` / `else`: result is 1 for zero, 2 otherwise | Direct `else` practice |
 | 8 | Guard a `do/while` loop with `if` | `while` |
-| **Structured programming — code and Nassi–Shneiderman diagrams** | | |
-| 9 | Rewrite the guarded `do/while` as one `while` loop | Direct `while` practice; switch from flowcharts to Nassi–Shneiderman diagrams |
-| 10 | Compare with three using `while` and counters | General `==` / `!=` literal comparisons |
+| **Structured programming — code and a choice of diagrams** | | |
+| 9 | Rewrite the guarded `do/while` as one `while` loop | Direct `while` practice; Nassi–Shneiderman is the default, with flowcharts also available |
+| 10 | Compare with three using `while` and counters | General `==` / `!=` comparisons between values |
 | 11 | Replace the counters with a comparison to three | Direct comparison practice |
 | 12 | Copy while restoring the source | Variable initializers; `clear`, `copyTo`, `copy` |
 | 13 | Use a variable initializer, then clear scratch storage | Runtime declarations |

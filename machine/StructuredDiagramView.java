@@ -55,6 +55,8 @@ public final class StructuredDiagramView extends BorderPane {
     private final DiagramZoomPane zoomPane = new DiagramZoomPane(diagrams);
     private final ScrollPane scroll = new ScrollPane(diagrams);
     private final DiagramToolbox toolbox = new DiagramToolbox();
+    private final Label title = new Label("Nassi–Shneiderman\ndiagram");
+    private final HBox toolbar = new HBox(8);
     private final Map<StructuredDiagram.Node, TextInputControl> fields = new IdentityHashMap<>();
     private final Map<StructuredDiagram.Node, Region> boxes = new IdentityHashMap<>();
     private StructuredDiagram document;
@@ -82,14 +84,13 @@ public final class StructuredDiagramView extends BorderPane {
         setId("structured-diagram");
         getStyleClass().add("structured-diagram-view");
         setMinWidth(240);
-        Label title = new Label("Nassi–Shneiderman\ndiagram");
         title.setWrapText(true);
         title.setMinWidth(115);
         title.setPrefWidth(115);
         title.setMaxWidth(115);
         title.setStyle("-fx-font-size: 10px; -fx-font-weight: bold; -fx-text-fill: #193747;");
         title.setTooltip(new Tooltip("Drag a symbol into a gap. Enter at a box's start/end inserts a statement; inside it applies edits. Shift+Enter keeps a line break."));
-        HBox toolbar = new HBox(8, title, toolbox);
+        toolbar.getChildren().setAll(title, toolbox);
         toolbar.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(toolbox, Priority.ALWAYS);
         toolbox.setMinWidth(0);
@@ -105,6 +106,12 @@ public final class StructuredDiagramView extends BorderPane {
         scroll.setStyle("-fx-background: #f3f6fa; -fx-background-color: #f3f6fa;");
         setCenter(scroll);
         resetContext();
+    }
+
+    /** Hosts a format selector in place of the title; null restores the standard label. */
+    public void setTitleControl(Node control) {
+        Node chosen = control == null ? title : control;
+        if (toolbar.getChildren().get(0) != chosen) toolbar.getChildren().set(0, chosen);
     }
 
     /** Clears the prior level's cached tree before opening a different draft. */

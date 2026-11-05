@@ -79,6 +79,48 @@ public final class FlowchartExecutionTest {
             }
         });
 
+        check("value comparisons keep private work on the decision and preserve both operands", () -> {
+            for (String operator : List.of("!=", "==")) for (int input : List.of(0, 2, 3, 4)) {
+                String source = "var x=" + input + "; var bound=3; var yes=0; var no=0; begin: if(x " + operator
+                        + " bound) { INC yes; } else { INC no; } HALT;";
+                Run run = run(source);
+                int decision = run.graph.vertices().stream().filter(v -> v.kind() == Flowchart.Kind.DECISION).findFirst().orElseThrow().id();
+                boolean expected = operator.equals("==") == (input == 3);
+                int steps = 0;
+                while (run.frame().nextVertex() == decision && steps++ < 1000) {
+                    int pointer = run.machine.getInstructionPointer();
+                    String role = run.program.controlRoles().get(pointer);
+                    run.execution.step(run.machine);
+                    if (role == null) expect(run.frame().nextVertex() == decision, "private value-comparison work remains on its source diamond");
+                }
+                expect(steps < 1000, "dynamic comparison reaches its actual branch");
+                expect(run.frame().transitions().get(0).label().equals(expected ? "true" : "false"),
+                        "dynamic comparison emits the observed source truth edge");
+                run.execution.step(run.machine, 1000);
+                expect(run.machine.isHalted() && run.machine.get(1) == input && run.machine.get(2) == 3
+                                && run.machine.get(expected ? 3 : 4) == 1 && run.machine.get(expected ? 4 : 3) == 0,
+                        "comparison preserves both operand variables and executes exactly the matching branch");
+                expect(run.values().size() == 4, "private comparison cells never become displayed variables");
+            }
+        });
+
+        check("array-to-array comparison links complete RHS source and preserves live declaration values", () -> {
+            String source = "var left[2]=2; var right[2]=2; var out=0; begin: if(left[01] == right // RHS\n [ 00 ]) { INC out; } HALT;";
+            Run run = run(source);
+            Flowchart.Vertex decision = run.graph.vertices().stream().filter(v -> v.kind() == Flowchart.Kind.DECISION).findFirst().orElseThrow();
+            expect(run.graph.comparisonInfo(decision).right().text(source).equals("right // RHS\n [ 00 ]"),
+                    "execution graph keeps the complete indexed right operand source range");
+            int increment = vertex(run, "INC out;");
+            untilNext(run, increment);
+            expect(run.frame().transitions().get(0).from() == decision.id() && run.frame().transitions().get(0).label().equals("true"),
+                    "actual array equality marks the source true branch");
+            expect(run.values().get(source.indexOf("var left")).equals("[2, 2]")
+                            && run.values().get(source.indexOf("var right")).equals("[2, 2]"),
+                    "both arrays retain their complete contents after comparison");
+            run.execution.step(run.machine, 1000);
+            expect(run.machine.isHalted() && run.values().get(source.indexOf("var out")).equals("1"), "array comparison follows its visible branch");
+        });
+
         check("while loops show body-return and exact false exit through joins", () -> {
             Run run = run("var x=2; begin: while(x!=0) { DEC x; } HALT;");
             int decision = run.graph.vertices().stream().filter(v -> v.kind() == Flowchart.Kind.DECISION).findFirst().orElseThrow().id();

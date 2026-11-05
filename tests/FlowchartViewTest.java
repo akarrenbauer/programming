@@ -300,6 +300,57 @@ public final class FlowchartViewTest {
                 require(view.lookupAll(".flowchart-decision").size() == 3 && view.lookupAll(".flowchart-condition-question").size() == 3,
                         "if, while and do/while diamonds each display the question suffix");
             });
+            check("indexed comparison operands link and edit their complete source spans together", () -> {
+                String left = "cells // left operand\r\n [ 00 ]";
+                String right = "peers // right operand\r\n [ // index\r\n 01 ]";
+                String code = "var cells[2]=0; var peers[2]=0; var bound=0;\r\nbegin:\r\n"
+                        + "if ( " + left + " // before operator\r\n != // before right\r\n " + right
+                        + " // after right\r\n ) { NOP; }\r\nHALT;\r\n";
+                reset(code, EnumSet.allOf(GameFeature.class), LanguageVersion.STRUCTURED);
+                require(view.isSynchronized(), view.getStatusText());
+                TextInputControl leftField = field(left.replace("\r", "")), rightField = field(right.replace("\r", ""));
+                require(rightField.getStyleClass().contains("flowchart-condition-literal")
+                                && rightField.getAccessibleText().equals("Right comparison operand"),
+                        "right operand retains its existing CSS hook with accurate accessible text");
+                IndexRange rightRange = new IndexRange(code.indexOf(right), code.indexOf(right) + right.length());
+                rightField.requestFocus();
+                require(lastFocused().equals(rightRange), "right operand focus includes the comment and closing array bracket");
+                view.highlightSourceOffset(rightRange.getEnd() - 1);
+                require(view.getHighlightedRange().equals(rightRange) && highlightedVertex().kind() == Flowchart.Kind.DECISION,
+                        "source caret at the right closing bracket links to the complete operand");
+                enter(rightField, 4);
+                require(changes.isEmpty() && view.getSource().equals(code),
+                        "applying unchanged multiline fields preserves all CRLF bytes despite TextArea normalization");
+                leftField.setText("peers[00]"); rightField.setText("cells[01]"); enter(rightField, 4);
+                String changed = code.replace(left, "peers[00]").replace(right, "cells[01]");
+                require(view.isSynchronized() && changes.equals(List.of(changed)) && view.getSource().equals(changed),
+                        "both pending array edits form one source transaction and preserve surrounding trivia");
+                Flowchart graph = view.getGraph();
+                Flowchart.ComparisonInfo info = graph.vertices().stream().map(graph::comparisonInfo)
+                        .filter(java.util.Objects::nonNull).findFirst().orElseThrow();
+                require(info.operandText().equals("peers[00]") && info.rightText().equals("cells[01]"),
+                        "the rebuilt graph contains both new indexed operands");
+                field("peers[00]").setText("01");
+                rightField = field("cells[01]"); rightField.setText("bound"); enter(rightField, 2);
+                require(view.getSource().equals(changed.replace("peers[00]", "01").replace("cells[01]", "bound"))
+                                && view.isSynchronized(), "a literal left and scalar right can be edited through the same fields");
+            });
+            check("dynamic loop comparisons keep fixed return heads through operand edits", () -> {
+                String code = "var n=1; var zero=0; var cells[1]=0; begin: do { DEC n; } while(n != zero); HALT;";
+                reset(code, EnumSet.allOf(GameFeature.class), LanguageVersion.STRUCTURED);
+                require(view.isSynchronized() && !view.lookup(".flowchart-loop-return").getStyleClass().contains("flowchart-jump-head"),
+                        "zero-initialized scalar is still a dynamic comparison without a movable return head");
+                TextInputControl right = field("zero"); right.setText("cells[00]"); enter(right, 4);
+                require(view.isSynchronized() && !view.lookup(".flowchart-loop-return").getStyleClass().contains("flowchart-jump-head"),
+                        "zero-initialized array value also retains its structured return destination");
+                right = field("cells[00]"); right.setText("000"); enter(right, 1);
+                require(view.isSynchronized() && view.lookup(".flowchart-loop-return").getStyleClass().contains("flowchart-jump-head"),
+                        "only an actual zero literal restores direct nonzero jump editing");
+                right = field("000"); right.setText("zero"); enter(right, 2);
+                require(view.isSynchronized() && !view.lookup(".flowchart-loop-return").getStyleClass().contains("flowchart-jump-head")
+                                && view.getSource().equals(code) && !view.getSource().contains("JNZ"),
+                        "returning to a dynamic operand does not lower or rewrite the loop");
+            });
             check("keyboard focus links commands, labels, operands and jump heads to exact source spans", () -> {
                 reset(LOOP, Set.of(), LanguageVersion.BEFORE_DO_WHILE);
                 field("DEC n;").requestFocus();

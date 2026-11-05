@@ -70,6 +70,8 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
     private final ScrollPane scroll = new ScrollPane(content);
     private final DiagramZoomPane zoomPane = new DiagramZoomPane(content);
     private final FlowPane palette = new FlowPane(5, 4);
+    private final Label title = new Label("Flowchart");
+    private final HBox toolbar = new HBox(8);
     private final Map<Tool, VBox> tools = new LinkedHashMap<>();
     private final List<Field> fields = new ArrayList<>();
     private final Map<StructuredDiagram.Node, List<ShapeBox>> boxes = new IdentityHashMap<>();
@@ -113,14 +115,13 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
         setId("flowchart");
         getStyleClass().add("flowchart-view");
         setMinWidth(240);
-        Label title = new Label("Flowchart");
         title.setMinWidth(Region.USE_PREF_SIZE);
         title.setStyle("-fx-font-size: 11px; -fx-font-weight: bold; -fx-text-fill: #193747;");
         title.setTooltip(new Tooltip("Drag a symbol into a gap. Enter at the start/end inserts a statement; inside applies edits."));
         palette.setId("flowchart-toolbox");
         palette.setMinWidth(0);
         for (Tool tool : Tool.values()) { VBox tile = tile(tool); tools.put(tool, tile); palette.getChildren().add(tile); }
-        HBox toolbar = new HBox(8, title, palette);
+        toolbar.getChildren().setAll(title, palette);
         toolbar.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(palette, Priority.ALWAYS);
         status.setId("flowchart-status");
@@ -134,6 +135,12 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
         setCenter(scroll);
         refreshTools();
         resetContext();
+    }
+
+    /** Hosts a format selector in place of the title; null restores the standard label. */
+    public void setTitleControl(Node control) {
+        Node chosen = control == null ? title : control;
+        if (toolbar.getChildren().get(0) != chosen) toolbar.getChildren().set(0, chosen);
     }
 
     public void resetContext() {
@@ -560,7 +567,8 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
         } else {
             TextField text = new TextField(original); text.setPrefColumnCount(16); text.setAlignment(Pos.CENTER); field = text;
         }
-        fields.add(new Field(owner, start, end, original, field, replacement));
+        // TextArea normalizes CRLF for display; an untouched field must still preserve the original source bytes.
+        fields.add(new Field(owner, start, end, field.getText(), field, replacement));
         field.setId("flowchart-edit-" + owner.start() + (suffix.equals("source") ? "" : "-" + suffix));
         field.getStyleClass().add("flowchart-edit");
         if (suffix.equals("label")) { field.getStyleClass().add("flowchart-label-edit"); field.setPromptText("label: (optional)"); }
@@ -801,9 +809,11 @@ public final class FlowchartView extends javafx.scene.layout.BorderPane {
             Label zero = new Label("0"); zero.setStyle("-fx-font-family: monospace; -fx-font-size: 12px; -fx-padding: 0 6;"); right = zero;
         } else {
             Flowchart.SourceSpan span = comparison.right();
-            TextInputControl literal = editField(snapshot, vertex.owner(), span.start(), span.end(), true, "condition-literal");
-            literal.setId("flowchart-condition-literal-" + vertex.owner().start()); literal.getStyleClass().add("flowchart-condition-literal");
-            sizeComparisonField(literal); right = literal;
+            // Retain the existing CSS hooks for both numeric and variable right operands.
+            TextInputControl rightOperand = editField(snapshot, vertex.owner(), span.start(), span.end(), true, "condition-literal");
+            rightOperand.setId("flowchart-condition-literal-" + vertex.owner().start()); rightOperand.getStyleClass().add("flowchart-condition-literal");
+            rightOperand.setAccessibleText("Right comparison operand");
+            sizeComparisonField(rightOperand); right = rightOperand;
         }
         Label question = new Label("?"); question.getStyleClass().add("flowchart-condition-question");
         question.setStyle("-fx-font-family: monospace; -fx-font-size: 12px; -fx-padding: 0 6 0 0;");

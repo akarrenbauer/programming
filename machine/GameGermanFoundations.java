@@ -94,7 +94,7 @@ final class GameGermanFoundations {
                 Map.entry("equals-three", new GameTranslations.TaskText(
                         "Einen Gleichheitstest aufbauen",
                         "Verwende eine while-Schleife zum Zählen und stelle n anschließend wieder her. Setze equal genau dann auf 1, wenn n den Wert 3 hat; für alle anderen Eingaben muss equal = 0 gelten.",
-                        "Bisher stehen nur Vergleiche mit null zur Verfügung. Zähle gegen ein Budget von drei Einheiten und merke dir, ob die Eingabe es überschritten hat. Damit schaltest du Vergleiche mit beliebigen Literalen natürlicher Zahlen frei.",
+                        "Bisher stehen nur Vergleiche mit null zur Verfügung. Zähle gegen ein Budget von drei Einheiten und merke dir, ob die Eingabe es überschritten hat. Damit schaltest du Vergleiche zwischen Werten frei: Variablen oder Literale natürlicher Zahlen auf beiden Seiten.",
                         List.of(
                                 "Übertrage n sowohl nach saved als auch nach work und übertrage saved anschließend zurück nach n.",
                                 "Verringere budget für jede Einheit von work, solange das möglich ist; zähle andernfalls in excess weiter.",

@@ -278,6 +278,57 @@ public final class FlowchartTest {
             expect(changed.equals(source.replace("while (3 == 03)", "while (4 == 03)")), "editing a value preserves the operator and right literal");
         });
 
+        check("comparison spans include full indexed values and preserve trivia around either operand", () -> {
+            String left = "cells // left operand\r\n [ 01 ]";
+            String right = "peers // right operand\r\n [ // index comment\r\n 02 ]";
+            String source = "var cells[3]=0; var peers[3]=0; var bound=0;\r\nbegin:\r\n"
+                    + "if ( " + left + " // before operator\r\n != // before right\r\n " + right
+                    + " // after right\r\n ) {}\r\nHALT; // keep tail\r\n";
+            Flowchart flow = graph(source, LanguageVersion.STRUCTURED);
+            Flowchart.Vertex decision = flow.vertices().stream().filter(v -> v.kind() == Flowchart.Kind.DECISION).findFirst().orElseThrow();
+            Flowchart.ComparisonInfo info = flow.comparisonInfo(decision);
+            expect(info.operandText().equals("cells[01]") && info.rightText().equals("peers[02]"),
+                    "both canonical values include the entire array subscript");
+            expect(info.operand().text(source).equals(left) && info.right().text(source).equals(right),
+                    "both editable spans retain all internal comments and whitespace");
+            expect(info.right().start() == source.indexOf(right) && info.right().end() == source.indexOf(right) + right.length(),
+                    "right span ends after its closing bracket without claiming trailing trivia");
+            String rightChanged = info.right().replace(source, "bound");
+            expect(rightChanged.equals(source.replace(right, "bound")), "right edit replaces the entire array and only that operand");
+            Flowchart next = graph(rightChanged, LanguageVersion.STRUCTURED);
+            Flowchart.ComparisonInfo nextInfo = next.comparisonInfo(decision.id());
+            String bothChanged = nextInfo.operand().replace(rightChanged, "01");
+            expect(bothChanged.equals(source.replace(right, "bound").replace(left, "01")),
+                    "left edit preserves operator comments and the updated right operand");
+            Flowchart edited = graph(bothChanged, LanguageVersion.STRUCTURED);
+            expect(edited.comparisonInfo(decision.id()).operandText().equals("01")
+                            && edited.comparisonInfo(decision.id()).rightText().equals("bound"),
+                    "literal-to-variable edits rebuild both operand spans");
+        });
+
+        check("dynamic post-test operands never become direct JNZ even when initialized to zero", () -> {
+            for (String condition : List.of("n != zero", "n != cells[00]", "0 != n", "n == zero")) {
+                String source = "var n=1; var zero=0; var cells[1]=0; begin: do { DEC n; } while(" + condition + "); HALT;";
+                Flowchart flow = graph(source, LanguageVersion.STRUCTURED);
+                Flowchart.Vertex footer = flow.vertices().stream().filter(v -> flow.loopJumpInfo(v) != null).findFirst().orElseThrow();
+                expect(!flow.canRetargetJump(footer.id()) && !flow.loopJumpInfo(footer).retargetable(),
+                        "dynamic comparison is not a direct jump: " + condition);
+                expect(flow.retargetJump(footer.id(), flow.jumpTarget(footer).id()).equals(source),
+                        "unchanged destination preserves structured source");
+                try {
+                    flow.retargetJump(footer.id(), vertexFor(flow, "HALT;").id());
+                    throw new AssertionError("dynamic condition lowered to JNZ: " + condition);
+                } catch (IllegalArgumentException expected) {
+                    expect(expected.getMessage().contains("variable != 0"), "rejection explains the exact lowerable form");
+                }
+                expect(flow.document().source().equals(source), "rejected move does not change the source snapshot");
+            }
+            Flowchart literalZero = graph("var cells[1]=1; begin: do { DEC cells[0]; } while(cells[0] != 000); HALT;",
+                    LanguageVersion.STRUCTURED);
+            Flowchart.Vertex footer = literalZero.vertices().stream().filter(v -> literalZero.loopJumpInfo(v) != null).findFirst().orElseThrow();
+            expect(literalZero.canRetargetJump(footer.id()), "array variable compared to a literal zero retains direct lowering");
+        });
+
         check("label metadata retains aliases and source order while resolving the final duplicate", () -> {
             String source = "var x=0; begin: same: { same // inner\n: alias: NOP; } JNZ x same; HALT;";
             Flowchart flow = graph(source, LanguageVersion.STRUCTURED);

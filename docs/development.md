@@ -58,7 +58,10 @@ control-flow statement, or `SimpleStatement`. The latter consumes the semicolon
 for declarations, commands, macro calls, and empty statements. Macro definitions
 and all control-flow bodies reuse `Block`. A shared `Condition(branchOnTrue)`
 rule emits a branch test for a false condition in `if`/`while`, and a true condition
-in `do`/`while`. `Lhs` reuses `Variable` for variable references. Macro parameter
+in `do`/`while`. Both operands accept `Value`: a numeric literal, variable, or
+literal-index array element. Tests preserve both operand cells, including aliases
+of the same cell; loop tests read both current values on every evaluation.
+`Lhs` reuses `Variable` for variable references. Macro parameter
 and argument items have separate rules: arguments preserve literal/index text
 for substitution and do not allocate cells for literal values.
 
@@ -255,15 +258,19 @@ EOF
 Run these checks from the repository root in the fresh build directory created
 above. They cover opcode addresses, original source ranges, imports, macro call
 chains, unchanged bytecode, and compilation from editable buffers.
+[CompilerValueComparisonsTest](../tests/CompilerValueComparisonsTest.java) also
+checks operand preservation, aliases, changing loop operands, arrays, and macro
+parameters across all three control structures.
 
 ```sh
 javac --release 17 -d "$machine_build" \
   -classpath "$machine_build" -sourcepath . \
   tests/CompilerInstructionMappingTest.java tests/CompilerSourceMappingTest.java \
-  tests/SourceWorkspaceTest.java
+  tests/SourceWorkspaceTest.java tests/CompilerValueComparisonsTest.java
 java -cp "$machine_build" machine.CompilerInstructionMappingTest
 java -cp "$machine_build" CompilerSourceMappingTest
 java -cp "$machine_build" SourceWorkspaceTest
+java -cp "$machine_build" machine.CompilerValueComparisonsTest
 ```
 
 The JavaFX checks in [SourceEditorTest](../tests/SourceEditorTest.java) and
@@ -321,8 +328,17 @@ JavaCC grammar when changing the language. Only virtual, earned toolbox imports
 so global copies receive the test input too. Runtime failures map back through
 those substitutions to the student's original text.
 
+`COMPARISONS` enables `Value == Value` and `Value != Value`; earlier conditions
+retain the earned zero-test forms. `Value` includes variables once either
+`COMPARISONS` or `COPYING` is unlocked, but `VariableDeclaration` still uses
+`Number` as its initializer until `COPYING` is earned. Array references also
+require `ARRAYS`. The comparison unlock therefore does not enable copied
+initializers early.
+
 World 1 pairs the source editor with `FlowchartView`; later worlds offer a
 selector between `StructuredDiagramView` (the initial choice) and `FlowchartView`.
+The selector replaces the active diagram's type label in its toolbox; Undo and
+Redo remain in the source header.
 The later-world choice lasts for the application session and survives World 1
 replay; it is not part of saved progress.
 Both project the same persisted source draft, and diagram edits patch the

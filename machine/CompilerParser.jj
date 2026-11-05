@@ -128,6 +128,23 @@ public class CompilerParser {
 
         // Private cells are restored to these initial values after every evaluation.
         Number remaining = dataSegment.newVariable(value);
+        return emitComparison(address, remaining, flag, trueWhenEqual);
+    }
+
+    private Number emitComparison(Number left, Number right, boolean trueWhenEqual) {
+        Number flag = dataSegment.newVariable(0);
+        codeSegment.addClear(flag);
+        // A repeated variable or aliased macro argument refers to one physical cell.
+        // Decrementing it twice would lose odd values; its equality is known already.
+        if( left.getValue() == right.getValue() ) {
+            if( trueWhenEqual ) codeSegment.addINC(flag);
+            return flag;
+        }
+        return emitComparison(left, right, flag, trueWhenEqual);
+    }
+
+    /** Compare current cell contents and restore both before exposing the result. */
+    private Number emitComparison(Number address, Number remaining, Number flag, boolean trueWhenEqual) {
         Number consumed = dataSegment.newVariable(0);
         Number loop = codeSegment.newLabel();
         Number checkRemaining = codeSegment.newLabel();
@@ -509,13 +526,17 @@ void Command() : {
 
 // if/while branch when the source condition is false; do/while branches when true.
 Number Condition(boolean branchOnTrue) : {
-    Number address;
+    Number address, right;
     Token operator, number;
 } {
-    address = Lhs() ( operator = <NEQ> | operator = <EQ> ) number = <NUMBER> {
-        boolean trueWhenEqual = (operator.kind == EQ) == branchOnTrue;
-        return emitComparison(address, Integer.parseInt(number.image), trueWhenEqual);
-    }
+    address = Lhs() ( operator = <NEQ> | operator = <EQ> ) (
+        number = <NUMBER> {
+            return emitComparison(address, Integer.parseInt(number.image), (operator.kind == EQ) == branchOnTrue);
+        }
+      | right = Variable() {
+            return emitComparison(address, right, (operator.kind == EQ) == branchOnTrue);
+        }
+    )
 }
 
 Number Lhs() : {

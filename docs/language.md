@@ -65,24 +65,28 @@ increment.
 | `NOP;` | Advance without changing ordinary data. |
 | `HALT;` | Stop execution. |
 
-Conditions support `==` and `!=`. The left operand is a variable, an array element, or a numeric
-literal; the right operand must be a numeric literal. Comparisons preserve their operands. There are
-no variable-to-variable comparisons, ordering operators, or Boolean combinations.
+Conditions support `==` and `!=` between any two values: variables, array elements with literal
+indices, or numeric literals. Examples include `left == right`, `cells[2] != limit`, and
+`3 == count`. Evaluating a condition preserves both operands. Comparing a cell with itself is
+valid: `count == count` is true and `count != count` is false. There are no ordering operators
+or Boolean combinations.
 
 `if` has an optional `else`. `while` checks before its body, whereas `do`/`while` checks afterward
 and executes at least once. All bodies require braces and may be nested. There is no `break`,
-`continue`, or `return`.
+`continue`, or `return`. Each loop test reads both operands again, so changing either operand in
+the body affects the next test.
 
 This complete program finishes with `count = 1` and `matches = 1`:
 
 ```text
 var count = 0;
 var matches = 0;
+var target = 3;
 begin:
-while(count != 3) {
+while(count != target) {
     INC count;
 }
-if(count == 3) {
+if(count == target) {
     INC matches;
 } else {
     NOP;
@@ -148,8 +152,8 @@ definitions, the last matching definition wins, without automatic preference for
 Put general versions first and literal specializations later. Helpers must precede callers; general
 forward macro references and recursion are unsupported.
 
-A condition's right operand must already be a numeric literal in the definition; a named macro
-parameter cannot stand there even if a call would supply a literal.
+Named macro parameters may appear on either side of a condition, for example `left == right`.
+Expansion substitutes the caller's variables, array elements, or numeric literals before evaluation.
 
 Macro expansion is line-oriented: keep signatures and calls on individual lines, put the opening `{`
 on the signature line, and put each closing brace on its own line. Use one statement per line. When

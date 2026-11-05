@@ -565,8 +565,8 @@ final class GameSyntax {
             Value left = value(scope, false);
             if (!at("==") && !at("!=")) throw new Failure("Conditions use == or !=.", peek());
             Lexeme operator = take();
-            Lexeme right = numeric();
-            if (left.literal() || number(right) != 0) require(GameFeature.COMPARISONS, operator);
+            Value right = value(scope, false);
+            if (left.literal() || !right.literal() || number(right.token) != 0) require(GameFeature.COMPARISONS, operator);
             need(")");
             body.size += 128;
         }

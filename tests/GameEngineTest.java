@@ -396,6 +396,52 @@ public final class GameEngineTest {
             }
             GameResult literal = check(level(List.of(example(0, 0)), 100), GLOBALS + "if(0==0) {NOP;} HALT;", Set.of(GameFeature.IF));
             require(!literal.passed() && literal.summary().contains("locked"), "literal left operands need general comparisons");
+            for (Set<GameFeature> features : List.of(Set.of(GameFeature.IF), Set.of(GameFeature.IF, GameFeature.COPYING))) {
+                GameResult variable = check(level(List.of(example(0, 0)), 100),
+                        GLOBALS + "if(input==out) {NOP;} HALT;", features);
+                require(!variable.passed() && variable.summary().contains("locked"),
+                        "a zero-valued variable on the right still requires general comparisons: " + variable.summary());
+            }
+        });
+
+        test("general comparisons read a changing right operand without unlocking copying", () -> {
+            GameLevel level = level(List.of(
+                    new GameLevel.TestCase(Map.of("input", 0), Map.of("input", 0, "out", 0)),
+                    new GameLevel.TestCase(Map.of("input", 1), Map.of("input", 1, "out", 1)),
+                    new GameLevel.TestCase(Map.of("input", 4), Map.of("input", 4, "out", 4))), 5000);
+            Set<GameFeature> features = Set.of(GameFeature.WHILE, GameFeature.COMPARISONS);
+            GameResult result = check(level, GLOBALS + "while(input != out) { INC out; } HALT;", features);
+            require(result.passed(), result.summary());
+            GameResult copying = check(level, "var input=0; var out=input; begin: HALT;", features);
+            require(!copying.passed() && copying.summary().contains("locked"), "comparison reward does not unlock copy initializers");
+        });
+
+        test("right comparison operands retain name array and feature validation", () -> {
+            GameLevel level = level(List.of(example(0, 0)), 1000);
+            Set<GameFeature> features = Set.of(GameFeature.IF, GameFeature.COMPARISONS, GameFeature.ARRAYS);
+            String source = "var input=0; var out=0; var cells[2]=0; begin: if(input == cells[1]) { NOP; } HALT;";
+            require(check(level, source, features).passed(), "right-hand arrays work once arrays are earned");
+            for (String right : List.of("missing", "cells[2]", "input[0]")) {
+                GameResult result = check(level, source.replace("input == cells[1]", "input == " + right), features);
+                require(!result.passed() && result.cases().isEmpty()
+                                && (result.summary().contains("Unknown variable") || result.summary().contains("outside")),
+                        "invalid right operand must fail validation before execution: " + right + " / " + result.summary());
+            }
+            GameResult lockedArray = check(level, source, Set.of(GameFeature.IF, GameFeature.COMPARISONS));
+            require(!lockedArray.passed() && lockedArray.summary().contains("locked"), "comparisons do not unlock array syntax");
+        });
+
+        test("macro parameters and imports may provide either comparison operand", () -> {
+            String library = "void equal(a,b,result) {\nif(a==b) {\nINC result;\n}\n}\n";
+            String source = "import \"toolbox\";\n" + GLOBALS + "equal(input,input,out);\nequal(2,input,out);\nHALT;";
+            GameResult result = GameEngine.check(level(List.of(example(0, 1), example(2, 2), example(3, 1)), 5000),
+                    source, ALL, Map.of("toolbox", library), () -> false, count -> {});
+            require(result.passed(), result.summary());
+            GameResult invalid = GameEngine.check(level(List.of(example(0, 0)), 1000),
+                    "import \"toolbox\";\n" + GLOBALS + "HALT;", ALL,
+                    Map.of("toolbox", library.replace("a==b", "a==missing")), () -> false, count -> {});
+            require(!invalid.passed() && invalid.cases().isEmpty() && invalid.summary().contains("missing"),
+                    "even unused imported comparison operands must resolve");
         });
 
         test("array output ports use declared addresses and enforce bounds", () -> {

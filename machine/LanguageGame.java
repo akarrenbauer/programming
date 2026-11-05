@@ -416,13 +416,16 @@ public class LanguageGame extends Application {
         toolboxTab.setGraphic(toolboxNotice);
         Label sourceHeading = new Label("SOURCE CODE");
         sourceHeading.setStyle("-fx-font-weight: bold; -fx-text-fill: #365367; -fx-padding: 5;");
-        VBox sourcePane = new VBox(sourceHeading, editor);
+        VBox sourcePane = new VBox(editor);
         sourcePane.setMinWidth(200);
         VBox.setVgrow(editor, Priority.ALWAYS);
         programEditors = new SplitPane(sourcePane);
         programEditors.setId("game-program-editors");
         diagramMode = new ComboBox<>();
         diagramMode.setId("game-diagram-mode");
+        diagramMode.setPrefWidth(150);
+        diagramMode.setMinWidth(Region.USE_PREF_SIZE);
+        diagramMode.setStyle("-fx-font-size: 11px;");
         diagramMode.setAccessibleText("Diagram view");
         diagramMode.setTooltip(new Tooltip("Choose a view of the same program. Both views use this world's available instructions."));
         diagramMode.valueProperty().addListener((observable, before, selected) -> {
@@ -430,8 +433,6 @@ public class LanguageGame extends Application {
             structuredDiagramMode = selected;
             refreshDiagram();
         });
-        Label diagramLabel = new Label("Diagram");
-        diagramLabel.setLabelFor(diagramMode);
         Button undo = new Button("Undo");
         undo.setId("game-undo");
         undo.setTooltip(new Tooltip("Undo the last source or applied diagram edit. In the source: Ctrl+Z (Cmd+Z on macOS)."));
@@ -444,10 +445,11 @@ public class LanguageGame extends Application {
         redo.setOnAction(event -> editor.redo());
         Region editorSpacer = new Region();
         HBox.setHgrow(editorSpacer, Priority.ALWAYS);
-        HBox editorControls = new HBox(8, diagramLabel, diagramMode, editorSpacer, undo, redo);
+        HBox editorControls = new HBox(8, sourceHeading, editorSpacer, undo, redo);
         editorControls.setAlignment(Pos.CENTER_LEFT);
-        editorControls.setPadding(new Insets(4, 6, 4, 6));
-        VBox program = new VBox(editorControls, editorVersion, programEditors);
+        editorControls.setPadding(new Insets(0, 6, 0, 0));
+        sourcePane.getChildren().add(0, editorControls);
+        VBox program = new VBox(editorVersion, programEditors);
         VBox.setVgrow(programEditors, Priority.ALWAYS);
         work = new TabPane(new Tab("Your program", program), grammarTab, toolboxTab, taskTab);
         work.setId("game-work");
@@ -691,6 +693,13 @@ public class LanguageGame extends Application {
             flowchart.setSource(editor.getText());
         }
         if (chosen == null || !programEditors.getItems().contains(chosen)) {
+            boolean restoreSelectorFocus = diagramMode.isFocused();
+            diagramMode.hide();
+            // A JavaFX control has one parent: detach it before transferring it to the other toolbox.
+            diagram.setTitleControl(null);
+            flowchart.setTitleControl(null);
+            if (chosen == diagram) diagram.setTitleControl(diagramMode);
+            else if (chosen == flowchart) flowchart.setTitleControl(diagramMode);
             double divider = programEditors.getItems().size() == 2 ? programEditors.getDividerPositions()[0] : .46;
             Node sourcePane = programEditors.getItems().get(0);
             editor.clearLinkedRange();
@@ -700,6 +709,7 @@ public class LanguageGame extends Application {
             else programEditors.getItems().setAll(sourcePane, chosen);
             programEditors.setDividerPositions(divider);
             highlightDiagramCaret();
+            if (restoreSelectorFocus) diagramMode.requestFocus();
         }
     }
 

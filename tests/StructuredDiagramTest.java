@@ -47,6 +47,27 @@ public final class StructuredDiagramTest {
             equal(source, diagram.source(), "original snapshot is immutable");
         });
 
+        check("both condition operands accept values and array edits retain source trivia", () -> {
+            String condition = "left // left operand\r\n [ 01 ] != right // right operand\r\n [ 00 ]";
+            String source = "var left[2]=1; var right[2]=0; var limit=0;\r\nbegin:\r\n"
+                    + "if (" + condition + ") { NOP; } // keep branch\r\n"
+                    + "while (01 == limit) { DEC limit; }\r\n"
+                    + "do { INC right[0]; } while (left[1] != right[0]);\r\nHALT; // keep tail\r\n";
+            StructuredDiagram diagram = StructuredDiagram.parse(source);
+            equal(source, diagram.source(), "parsing preserves both operand comments and CRLF");
+            equal(condition, diagram.main().nodes().get(0).editText(), "complete comparison stays editable");
+            equal("01 == limit", diagram.main().nodes().get(1).editText(), "literal-to-variable condition");
+            equal("left[1] != right[0]", diagram.main().nodes().get(2).editText(), "array-to-array post-test");
+            StructuredDiagram changed = diagram.edit(diagram.main().nodes().get(0), "right[01] == left[00]");
+            equal(source.replace(condition, "right[01] == left[00]"), changed.source(),
+                    "changing both operands changes only the condition span");
+            StructuredDiagram legacy = StructuredDiagram.parse("var x=0; var y=0; begin: while(x != y) {} HALT;",
+                    LanguageVersion.BEFORE_DO_WHILE, true);
+            equal("x != y", legacy.main().nodes().get(0).editText(), "value comparison is not tied to do/while keyword profile");
+            rejects(() -> StructuredDiagram.parse("begin: if(x == cells[index]) {}"), "Expected a nonnegative number");
+            rejects(() -> StructuredDiagram.parse("begin: if(x == while) {}"), "Expected an identifier");
+        });
+
         check("statement and declaration edits change actual compiled execution", () -> {
             StructuredDiagram diagram = StructuredDiagram.parse("var x=2; var result=0; begin:\n"
                     + "while(x!=0) { DEC x; INC result; }\nHALT;\n");
@@ -148,7 +169,7 @@ public final class StructuredDiagramTest {
             StructuredDiagram diagram = StructuredDiagram.parse("var x=1; begin: while(x!=0) {DEC x;} HALT;");
             Node loop = diagram.main().nodes().get(0);
             String before = diagram.source();
-            rejects(() -> diagram.edit(loop, "x !="), "Expected a nonnegative number");
+            rejects(() -> diagram.edit(loop, "x !="), "Expected an identifier");
             equal(before, diagram.source(), "failed edit preserves source");
             StructuredDiagram next = diagram.edit(loop, "x == 0");
             try {

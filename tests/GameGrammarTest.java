@@ -27,7 +27,7 @@ public final class GameGrammarTest {
         check("initial grammar contains only numeric globals commands and labels", () -> {
             String grammar = GameGrammar.render(Set.of());
             expectRule(grammar, "Program", "{ VariableDeclaration ; } begin: { Statement }");
-            expectRule(grammar, "VariableDeclaration", "var Identifier = Value");
+            expectRule(grammar, "VariableDeclaration", "var Identifier = Number");
             expectRule(grammar, "Statement", "Command ;", "Label : Statement");
             expectRule(grammar, "Command", "HALT", "NOP", "INC Variable", "DEC Variable", "JNZ Variable Label");
             expectRule(grammar, "Value", "Number");
@@ -53,23 +53,24 @@ public final class GameGrammarTest {
 
         check("general comparisons preserve variables before copying unlocks", () -> {
             String grammar = GameGrammar.render(comparisonFeatures());
-            expectRule(grammar, "Condition", "Variable == Number", "Variable != Number",
-                    "Number == Number", "Number != Number");
-            expectRule(grammar, "Value", "Number");
-            expectRule(grammar, "VariableDeclaration", "var Identifier = Value");
+            expectRule(grammar, "Condition", "Value == Value", "Value != Value");
+            expectRule(grammar, "Value", "Number", "Variable");
+            expectRule(grammar, "VariableDeclaration", "var Identifier = Number");
             expect(!rule(grammar, "Statement").contains("VariableDeclaration ;"), "comparison reward does not unlock runtime declarations");
         });
 
         check("intermediate displayed comparisons agree with actual accepted syntax", () -> {
-            String source = "var x = 0;\nvar result = 0;\nbegin:\n"
+            String source = "var x = 0;\nvar other = 3;\nvar result = 0;\nbegin:\n"
                     + "if (x == 3) { INC result; }\nif (x != 3) { INC result; }\n"
-                    + "if (3 == 3) { INC result; }\nif (4 != 3) { INC result; }\nHALT;\n";
+                    + "if (3 == 3) { INC result; }\nif (4 != 3) { INC result; }\n"
+                    + "if (x == other) { INC result; }\nif (x != other) { INC result; }\n"
+                    + "if (3 == x) { INC result; }\nif (3 != x) { INC result; }\nHALT;\n";
             GameLevel level = new GameLevel("grammar-check", "Tests", "Comparisons", "", "", source,
                     List.of(), Set.of(), Set.of(), Map.of(), List.of(
-                        new GameLevel.TestCase(Map.of("x", 2), Map.of("x", 2, "result", 3)),
-                        new GameLevel.TestCase(Map.of("x", 3), Map.of("x", 3, "result", 3))), 5000);
+                        new GameLevel.TestCase(Map.of("x", 2), Map.of("x", 2, "other", 3, "result", 5)),
+                        new GameLevel.TestCase(Map.of("x", 3), Map.of("x", 3, "other", 3, "result", 5))), 5000);
             GameResult result = GameEngine.check(level, source, comparisonFeatures(), Map.of(), () -> false, count -> {});
-            expect(result.passed(), "all four displayed comparison forms must work: " + result.summary());
+            expect(result.passed(), "all operand combinations must work before copying unlocks: " + result.summary());
             String copyInitializer = source.replace("var result = 0;", "var result = x;");
             GameResult copying = GameEngine.check(level, copyInitializer, comparisonFeatures(), Map.of(), () -> false, count -> {});
             expect(!copying.passed() && copying.summary().toLowerCase().contains("locked"), "variable initialization stays locked despite general comparisons");
@@ -123,7 +124,7 @@ public final class GameGrammarTest {
             expectRule(grammar, "Value", "Number", "Variable");
             expectRule(grammar, "Variable", "Identifier [ \"[\" Number \"]\" ]");
             expectRule(grammar, "Label", "Identifier");
-            expectRule(grammar, "Condition", "Value == Number", "Value != Number");
+            expectRule(grammar, "Condition", "Value == Value", "Value != Value");
             expectRule(grammar, "Block", "\"{\" { Statement } \"}\"");
             expectRule(grammar, "Statement", "Command ;", "Label : Statement", ";", "Block",
                     "while ( Condition ) Block", "if ( Condition ) Block [ else Block ]",
@@ -168,22 +169,26 @@ public final class GameGrammarTest {
             expect(!production(model, "Program").isNew(added), "array reward does not change program order");
         });
 
-        check("comparison and copying rewards mark changed portions of shared Condition", () -> {
+        check("comparison and copying rewards highlight their independent grammar additions", () -> {
             Set<GameFeature> available = EnumSet.of(GameFeature.BLOCKS, GameFeature.IF, GameFeature.COMPARISONS);
             Set<GameFeature> comparisons = Set.of(GameFeature.COMPARISONS);
             Production condition = production(GameGrammar.describe(available, comparisons), "Condition");
             for (Alternative alternative : condition.alternatives().subList(0, 2)) {
                 expect(alternative.fragments().stream().filter(f -> f.isNew(comparisons)).map(Fragment::text).toList()
-                        .equals(List.of("Number")), "existing variable comparison only gains a general right operand");
+                        .equals(List.of("Value", "Value")), "general comparisons expand both operands");
             }
-            expect(condition.alternatives().get(2).fragments().stream().allMatch(f -> f.isNew(comparisons)),
-                    "literal-left alternative is entirely new");
+            Model compared = GameGrammar.describe(available, comparisons);
+            expect(newFragments(production(compared, "Value"), comparisons).equals(List.of("Variable")),
+                    "comparison values include variables");
+            expect(!production(compared, "VariableDeclaration").isNew(comparisons),
+                    "comparison reward keeps initializer grammar unchanged");
             available.add(GameFeature.COPYING);
             Set<GameFeature> copying = Set.of(GameFeature.COPYING);
             Model copied = GameGrammar.describe(available, copying);
-            expect(newFragments(production(copied, "Condition"), copying).equals(List.of("Value", "Value")),
-                    "copying changes the shared left operand to Value");
-            expect(newFragments(production(copied, "Value"), copying).equals(List.of("Variable")), "Value gains variables");
+            expect(!production(copied, "Condition").isNew(copying) && !production(copied, "Value").isNew(copying),
+                    "copying does not re-highlight existing comparisons or values");
+            expect(newFragments(production(copied, "VariableDeclaration"), copying).equals(List.of("Value")),
+                    "copying unlocks variable initializers");
         });
 
         check("new loops do not re-highlight already available condition grammar", () -> {

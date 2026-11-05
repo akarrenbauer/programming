@@ -108,11 +108,13 @@ when execution reaches them.
 &emsp;*Identifier* [ `[` *Number* `]` ]
 
 *Condition*:<br>
-&emsp;*Value* `==` *Number*<br>
-&emsp;*Value* `!=` *Number*
+&emsp;*Value* `==` *Value*<br>
+&emsp;*Value* `!=` *Value*
 
-Array sizes, array indices, and the right-hand side of a comparison are numeric
-literals. For example, `cells[2] != 0` is a condition.
+Array sizes and array indices are numeric literals. Either comparison operand
+can be a number, variable, or array element: `cells[2] != limit`, `left == right`,
+and `3 == count` are conditions. Evaluation preserves both operands, including
+when they refer to the same cell. Loops read both values on each test.
 
 ## Imports and other compiler rules
 

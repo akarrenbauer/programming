@@ -81,6 +81,10 @@ differences are consequences of a runnable, bounded teaching environment:
   through **Compile** does not describe the current interface.
 - The game awards both zero comparisons with `if`. The book derives them
   separately; the lesson explains that derivation without adding another lock.
+- Level 10 earns general `==` / `!=` comparisons between values, preserving
+  both operands. Level 11 practices the unlock with the specific comparison to
+  three; comparisons between variables are also available. Reference
+  initializers retain their separate copying unlock.
 
 Existing saved completions and drafts are retained by level ID. Newly added
 lessons do not receive credit automatically. The earliest unfinished lesson is

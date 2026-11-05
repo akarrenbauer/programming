@@ -99,6 +99,32 @@ public final class StructuredDiagramViewTest {
                 view.setSource(view.getSource());
                 require(field("DEC result;") == control, "equal-source echo preserves controls");
             });
+            check("Nassi condition edits validate scalar and indexed operands through the source callback", () -> {
+                String source = "// keep this comparison lesson\nvar left[2]=1; var bound=1; var limits[2]=0;\nbegin:\n"
+                        + "if (left[01] == bound) { NOP; } // keep this branch\nHALT;\n";
+                reset(source);
+                require(view.isSynchronized(), view.getStatusText());
+                TextInputControl condition = field("left[01] == bound");
+                condition.setText("left[01] == limits[00]");
+                require(view.getSource().equals(source) && changed.isEmpty(), "the indexed RHS starts as a pending condition edit");
+                enter(condition, 4);
+                String indexed = source.replace("left[01] == bound", "left[01] == limits[00]");
+                require(view.isSynchronized() && view.getSource().equals(indexed) && changed.equals(List.of(indexed)),
+                        "valid indexed RHS emits exactly one callback and preserves the left operand and surrounding source");
+                view.highlightSourceOffset(indexed.indexOf("limits[00]") + "limits[00]".length() - 1);
+                int start = indexed.indexOf("left[01] == limits[00]");
+                require(view.getHighlightedRange().equals(new IndexRange(start, start + "left[01] == limits[00]".length())),
+                        "the array RHS remains linked to its complete Nassi condition");
+                condition = field("left[01] == limits[00]");
+                condition.setText("limits[01] != left[00]"); enter(condition, 4);
+                String swapped = indexed.replace("left[01] == limits[00]", "limits[01] != left[00]");
+                require(view.isSynchronized() && view.getSource().equals(swapped) && changed.size() == 2,
+                        "both array operands and operator can change in one validated source transaction");
+                condition = field("limits[01] != left[00]");
+                condition.setText("limits[01] != missing[00]"); enter(condition, 4);
+                require(view.getSource().equals(swapped) && changed.size() == 2 && view.getStatusText().contains("missing"),
+                        "an unknown RHS array is rejected before the source callback");
+            });
             check("Enter at boundaries inserts before or after and commits all pending fields atomically", () -> {
                 reset("var n=1;\nvar result=0;\nbegin:\nINC n;\nDEC n;\nHALT;\n");
                 TextInputControl first = field("INC n;");
