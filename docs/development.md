@@ -28,6 +28,7 @@ javac --release 17 -d "$machine_build" \
 | [Machine.java](../machine/Machine.java), [MachineGUI.java](../machine/MachineGUI.java) | Instruction execution and its JavaFX interface. |
 | [SourceWorkspace.java](../machine/SourceWorkspace.java) | Editable main/import buffers, unsaved-change tracking, and explicit source saving. |
 | [SourceEditor.java](../machine/SourceEditor.java), [SourceSyntax.java](../machine/SourceSyntax.java) | JavaFX source highlighting and its tolerant, text-preserving token classifier. |
+| [SourceFormatter.java](../machine/SourceFormatter.java) | Java-style whitespace formatting for the Language Game's source and earned helper definitions. |
 | [LanguageGame.java](../machine/LanguageGame.java) | Standalone JavaFX game, background checks, feedback, and saved drafts. |
 | [StructuredDiagram.java](../machine/StructuredDiagram.java), [StructuredDiagramView.java](../machine/StructuredDiagramView.java) | Source-preserving diagram model, keyboard editing, and nested insertion targets. |
 | [Flowchart.java](../machine/Flowchart.java), [FlowchartView.java](../machine/FlowchartView.java) | Editable control-flow graph with explicit jump edges in World 1, structured editing in later worlds, and lesson-specific language profiles. |
@@ -52,6 +53,9 @@ runs `Program(true)` to check the source before macro expansion. Macro-body
 global references are validated after the global declarations. Expansion then
 substitutes arguments and renames macro-local variables and labels. Another fresh
 parser runs `Program(false)` on the expanded source and rejects unresolved labels.
+Preprocessing recognizes import and macro keywords at their boundaries and splits
+after closing braces, so formatting does not change how calls, local declarations,
+and private labels are recognized.
 
 The parser's `Statement` rule handles optional labels followed by a block,
 control-flow statement, or `SimpleStatement`. The latter consumes the semicolon
@@ -337,14 +341,20 @@ initializers early.
 
 World 1 pairs the source editor with `FlowchartView`; later worlds offer a
 selector between `StructuredDiagramView` (the initial choice) and `FlowchartView`.
-The selector replaces the active diagram's type label in its toolbox; Undo and
-Redo remain in the source header.
+The selector replaces the active diagram's type label in its toolbox; Format,
+Undo, and Redo remain in the source header.
 The later-world choice lasts for the application session and survives World 1
 replay; it is not part of saved progress.
 Both project the same persisted source draft, and diagram edits patch the
 affected source range so native undo also restores the diagrams. The source
 toolbar's Undo and Redo buttons use this shared history. Switching views retains
-pending fields while the source is unchanged. In World 1, the flowchart palette
+pending fields while the source is unchanged. `SourceFormatter` applies
+two-space indentation and Java-style braces without changing source tokens or
+comments. Format replaces the source once, making the entire action undoable;
+unchanged output creates no undo entry. The earned toolbox uses a read-only
+`SourceEditor` for highlighting and displays the same formatted helpers that
+the insertion button adds to the source.
+In World 1, the flowchart palette
 contains only rectangle and diamond shapes;
 instruction placeholders still follow the earned feature set, and jump-head
 placement determines the control-flow path. Post-test loops render their body
@@ -421,6 +431,17 @@ these entries in **Variables**, alongside any missing outputs required by the
 test contract. Compiler scratch cells remain in the raw memory table.
 Input and Expected remain contract-only columns, while Now
 reads current memory and refreshes after stepping, running, and restarting.
+`GameDebugSession.newStepOver()` captures a source-step target projected to the
+outermost macro caller, or the current source location when there is no caller.
+This includes synthetic argument setup and nested expansions in one invocation.
+The operation retains its target across bounded UI batches and becomes invalid
+after independent stepping or restart. `GameDebugger` uses interruptible batches
+for Step over, with the existing Run/Pause control; pause, restart, and close
+discard the operation. Ordinary Step and Step statement retain their existing
+behavior, and all modes use the session's runtime guards and level step limit.
+[GameDebugSessionTest](../tests/GameDebugSessionTest.java) and
+[GameDebuggerTest](../tests/GameDebuggerTest.java) cover invocation boundaries,
+bounded stepping, and debugger controls.
 
 Core game checks require only the JDK:
 
@@ -468,6 +489,11 @@ trash icons, pointer and keyboard insertion, cached diagrams, and source undo.
 [GameDiagramModesTest](../tests/GameDiagramModesTest.java) checks the later-world
 selector, shared drafts and undo/redo buttons, pending fields, structured-only
 flowcharts, and transitions between worlds.
+[SourceFormatterTest](../tests/SourceFormatterTest.java) checks formatting, token
+preservation, and unchanged compilation and macro behavior without JavaFX;
+[GameFormattingTest](../tests/GameFormattingTest.java)
+checks highlighted toolbox content, helper insertion, shared zoom, and
+formatting with source/diagram synchronization and native undo/redo.
 [GameFlowchartEditorTest](../tests/GameFlowchartEditorTest.java) covers the first
 world's jump paths, source/flowchart synchronization, undo, invalid-draft
 recovery, and the transition between legacy `do:` labels and structured loops.

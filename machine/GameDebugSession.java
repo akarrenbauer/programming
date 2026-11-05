@@ -41,6 +41,7 @@ public final class GameDebugSession {
     private Status status;
     private String message;
     private SourceTrace previousTrace;
+    private long executionRevision;
 
     /** Compile on a worker thread, then hand the session to one UI thread. No files are read or saved. */
     public static GameDebugSession prepare(GameLevel level, String source, Set<GameFeature> available,
@@ -152,6 +153,7 @@ public final class GameDebugSession {
     }
 
     public void restart() {
+        executionRevision++;
         machine.load(program.bytecode());
         previousTrace = null;
         status = Status.READY;
@@ -195,6 +197,7 @@ public final class GameDebugSession {
         }
         previousTrace = getCurrentTrace();
         machine.step();
+        executionRevision++;
         inspectPosition();
         return true;
     }
@@ -208,6 +211,44 @@ public final class GameDebugSession {
             if (!step()) break;
         } while (!isStopped() && getStepCount() - before < instructionLimit && Objects.equals(start, getCurrentTrace()));
         return getStepCount() - before;
+    }
+
+    /**
+     * Capture one source step, treating the current outermost macro invocation as a single step.
+     * Keep the returned operation across bounded UI batches; discard it to pause or cancel.
+     */
+    public StepOver newStepOver() { return new StepOver(); }
+
+    /** A captured stepping target, automatically invalidated by restart or independent stepping. */
+    public final class StepOver {
+        private final SourceLocation target = stepOverLocation(getCurrentTrace());
+        private long revision = executionRevision;
+        private boolean complete = isStopped();
+
+        private StepOver() {}
+
+        public boolean isComplete() {
+            return complete || revision != executionRevision || isStopped();
+        }
+
+        /** Execute at most instructionLimit instructions, retaining the original target after yielding. */
+        public int step(int instructionLimit) {
+            if (instructionLimit < 1) throw new IllegalArgumentException("A positive instruction limit is required");
+            if (isComplete()) return 0;
+            int before = getStepCount();
+            do {
+                boolean advanced = GameDebugSession.this.step();
+                revision = executionRevision;
+                complete = !advanced || isStopped() || !Objects.equals(target, stepOverLocation(getCurrentTrace()));
+            } while (!complete && getStepCount() - before < instructionLimit);
+            return getStepCount() - before;
+        }
+    }
+
+    private static SourceLocation stepOverLocation(SourceTrace trace) {
+        if (trace == null) return null;
+        // Literal-argument setup has the call's own range, before entering the expanded caller chain.
+        return trace.callers().isEmpty() ? trace.location() : trace.callers().get(0);
     }
 
     private void inspectPosition() {

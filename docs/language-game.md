@@ -132,6 +132,12 @@ diagram, an empty else branch is crossed out; inserting into it creates the
 corresponding source branch.
 Expand **Declarations and helpers** to edit program setup.
 
+Click **Format** above the source, beside **Undo** and **Redo**, to apply a
+Java-style layout to the whole draft: two spaces per nesting level, opening
+braces beside their headers, and line breaks after opening braces and
+statements. Code tokens and comments are preserved. Both diagrams follow the
+formatted source, and one **Undo** restores its previous layout.
+
 Use **Undo** and **Redo** above the source to reverse or restore a source edit,
 including an applied edit from either diagram. Alternatively, click in the
 source and press **Ctrl+Z** to undo (**Cmd+Z** on macOS). Redo is
@@ -144,9 +150,9 @@ unapplied field text is not part of the saved draft.
 In either diagram editor, only earned syntax is accepted. If source edits no longer compile, the last valid diagram stays visible and
 damaged structures turn red. The retained diagram is read-only until the source
 is valid again, so its old controls cannot overwrite your current draft. Fixing
-the code restores editing and removes the red marks. Tab characters display at
-two-space tab stops, and new diagram blocks use two-space indentation. Existing
-source formatting is preserved. Changing levels clears the previous level's
+the code restores editing and removes the red marks. Tab stops, new diagram
+blocks, **Format**, and earned helpers all use two-space indentation. Diagram
+edits preserve existing source formatting. Changing levels clears the previous level's
 cached diagram, so an unfinished draft never displays another level's program.
 
 1. Read the short objective and input/output examples; open **Task details**
@@ -213,8 +219,14 @@ Adding an unused `while` while retaining the original guarded loop does not
 complete the rewrite.
 
 Use **Step** for one machine instruction or **Step statement** to advance to the
-next source range. **Run** executes in bounded batches; click **Pause** to stop
-and inspect memory, the instruction pointer `i`, and the highlighted source.
+next source range, including ranges inside helpers. **Step over** finishes the
+current outermost macro invocation, including nested helper calls, then
+stops before the next statement in the main program. Outside a macro, it advances
+through the current source range. **Run** continues execution; during Run or a
+long Step over, the Run button becomes **Pause** so you can interrupt and inspect
+memory, the instruction pointer `i`, and the highlighted source. Pausing cancels
+the pending step; Restart or closing the window cancels it too. Step over obeys
+the same instruction limit and runtime checks as other execution controls.
 The **Variables** table includes declared globals, each array element, and
 allocated local variables, including those in expanded macros. Local names
 include their memory address so shadowed declarations and separate expansions
@@ -400,7 +412,8 @@ so students need not repeatedly rewrite copying, division, or sign decoding.
 
 ## Earned toolbox
 
-**Earned toolbox** contains readable, ordinary macro definitions. Each helper
+**Earned toolbox** shows read-only, syntax-highlighted macro definitions with
+two-space indentation and Java-style brace placement. Each helper
 has a usage comment describing its inputs, outputs, ranges, and whether the
 output may reuse an input cell. Unless explicitly allowed, keep outputs separate
 from inputs and from each other. For example, `copyTo(n, n)` and
@@ -408,7 +421,8 @@ from inputs and from each other. For example, `copyTo(n, n)` and
 must use separate cells. Inputs remain unchanged when outputs are distinct.
 
 Before macros unlock, earned definitions can be read but cannot be used. After
-macros unlock, **Insert earned helpers at the top** copies them into the editor.
+macros unlock, **Insert earned helpers at the top** copies them into the editor
+with the same formatting. This insertion can be undone with **Undo**.
 Once imports unlock, this directive includes the current earned collection:
 
 ```text

@@ -46,6 +46,7 @@ public final class GameDebugger {
     private final TableView<String> ports = new TableView<>();
     private final Button step = new Button("Step");
     private final Button statement = new Button("Step statement");
+    private final Button stepOver = new Button("Step over");
     private final Button run = new Button("Run");
     private final Button restart = new Button("Restart");
     private final Label state = new Label();
@@ -83,6 +84,7 @@ public final class GameDebugger {
         inputs.setWrapText(true);
         step.setId("debug-step");
         statement.setId("debug-statement-step");
+        stepOver.setId("debug-step-over");
         run.setId("debug-run");
         restart.setId("debug-restart");
         state.setId("debug-state");
@@ -94,6 +96,8 @@ public final class GameDebugger {
         step.setOnAction(event -> { session.step(); refresh(); });
         statement.setTooltip(new Tooltip("Run until the source range or macro call changes, stopping after at most 10,000 instructions."));
         statement.setOnAction(event -> { session.stepStatement(10_000); refresh(); });
+        stepOver.setTooltip(new Tooltip("Finish the macro call from your program, including nested calls, or advance one source statement. Use Pause to stop a long call."));
+        stepOver.setOnAction(event -> startExecution(session.newStepOver()));
         run.setOnAction(event -> { if (timer == null) startRun(); else pause(); });
         restart.setOnAction(event -> {
             pause();
@@ -101,7 +105,7 @@ public final class GameDebugger {
             displayedTrace = null;
             refresh();
         });
-        VBox heading = new VBox(7, title, inputs, new HBox(8, step, statement, run, restart), state);
+        VBox heading = new VBox(7, title, inputs, new HBox(8, step, statement, stepOver, run, restart), state);
         heading.setPadding(new Insets(0, 0, 10, 0));
         root.setTop(heading);
         configureSources();
@@ -219,18 +223,35 @@ public final class GameDebugger {
     private static String format(Integer value) { return value == null ? "—" : value.toString(); }
 
     private void startRun() {
-        if (session.isStopped()) return;
+        startExecution(null);
+    }
+
+    private void startExecution(GameDebugSession.StepOver operation) {
+        if (session.isStopped() || timer != null) return;
         timer = new AnimationTimer() {
             @Override public void handle(long now) {
                 long deadline = System.nanoTime() + 6_000_000;
                 int instructions = 0;
-                while (!session.isStopped() && instructions++ < 2000 && System.nanoTime() < deadline) session.step();
-                if (session.isStopped()) pause();
+                while (!session.isStopped() && instructions++ < 2000 && System.nanoTime() < deadline) {
+                    if (operation == null) session.step();
+                    else {
+                        operation.step(1);
+                        if (operation.isComplete()) break;
+                    }
+                }
+                if (session.isStopped() || operation != null && operation.isComplete()) pause();
                 refresh();
+                if (operation != null && !session.isStopped()) revealStepOverCaller();
             }
         };
         timer.start();
         refreshControls();
+        if (operation != null) revealStepOverCaller();
+    }
+
+    private void revealStepOverCaller() {
+        SourceTrace trace = session.getCurrentTrace();
+        if (trace != null && !trace.callers().isEmpty()) reveal(trace.callers().get(0));
     }
 
     private void pause() {
@@ -245,6 +266,7 @@ public final class GameDebugger {
         boolean running = timer != null;
         step.setDisable(running || session.isStopped());
         statement.setDisable(running || session.isStopped());
+        stepOver.setDisable(running || session.isStopped());
         run.setDisable(session.isStopped());
         run.setText(running ? "Pause" : "Run");
     }

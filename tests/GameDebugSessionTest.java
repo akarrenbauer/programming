@@ -344,6 +344,144 @@ public final class GameDebugSessionTest {
             expect(IllegalArgumentException.class, () -> loop.stepStatement(0));
         });
 
+        test("step over retains the outer imported invocation across nested calls and bounded batches", () -> {
+            String library = "void inner(cell) {\nINC cell;\nINC cell;\n}\n"
+                    + "void outer(cell) {\ninner(cell);\nINC cell;\ninner(cell);\n}\n";
+            GameDebugSession session = GameDebugSession.prepare(level(List.of(example(7, 0)), 100),
+                    "import \"toolbox\";\n" + GLOBALS + "outer(input); INC out; HALT;", ALL,
+                    Map.of("toolbox", library), 0, () -> false);
+            require(session.getCurrentTrace().callers().size() == 2, "initial instruction is already inside a nested helper");
+            GameDebugSession.StepOver operation = session.newStepOver();
+            require(operation.step(1) == 1 && !operation.isComplete() && value(session, "input") == 8,
+                    "one-instruction batch yields within the captured outer call");
+            require(operation.step(1) == 1 && !operation.isComplete() && session.getCurrentTrace().callers().size() == 1,
+                    "return from inner helper does not complete the outer call");
+            require(operation.step(100) == 3 && operation.isComplete() && value(session, "input") == 12,
+                    "resumption includes the later nested call");
+            require(selectedText(session).equals("INC out;") && value(session, "out") == 0,
+                    "the next main statement has not executed");
+            require(operation.step(100) == 0, "completed operation cannot advance another statement");
+        });
+
+        test("step over distinguishes adjacent identical calls on the same source line", () -> {
+            String source = "void twice(cell) {\nINC cell;\nINC cell;\n}\n"
+                    + GLOBALS + "twice(input); twice(input); INC out; HALT;";
+            GameDebugSession session = prepare(level(List.of(example(0, 0)), 100), source, ALL);
+            SourceLocation first = session.getCurrentTrace().callers().get(0);
+            GameDebugSession.StepOver operation = session.newStepOver();
+            require(operation.step(100) == 2 && operation.isComplete() && value(session, "input") == 2,
+                    "only first expansion executes");
+            SourceLocation second = session.getCurrentTrace().callers().get(0);
+            require(first.line() == second.line() && !first.equals(second), "offsets distinguish calls on one line");
+            require(session.newStepOver().step(100) == 2 && value(session, "input") == 4
+                    && selectedText(session).equals("INC out;"), "second invocation is a separate step");
+        });
+
+        test("step over includes mutable literal argument setup before entering the macro", () -> {
+            String source = "void count(remaining, total) {\nwhile(remaining != 0) {\nDEC remaining;\nINC total;\n}\n}\n"
+                    + GLOBALS + "count(3, out); count(2, out); NOP; HALT;";
+            GameDebugSession session = prepare(level(List.of(example(0, 0)), 1000), source, ALL);
+            require(session.getCurrentTrace().callers().isEmpty() && selectedText(session).equals("count(3, out);"),
+                    "literal setup belongs to the call range before the expanded body");
+            GameDebugSession.StepOver operation = session.newStepOver();
+            while (!operation.isComplete()) require(operation.step(1) == 1, "each batch makes bounded progress");
+            require(value(session, "out") == 3 && selectedText(session).equals("count(2, out);"),
+                    "setup and helper body finish together without entering the next call");
+            GameDebugSession.StepOver second = session.newStepOver();
+            require(second.step(1000) > 2 && second.isComplete() && value(session, "out") == 5
+                    && selectedText(session).equals("NOP;"), "second literal invocation is independently stepped");
+        });
+
+        test("step over stops before the next iteration of the same main loop callsite", () -> {
+            String source = "void advance(remaining, total) {\nDEC remaining;\nINC total;\n}\n"
+                    + GLOBALS + "while(input!=0) { advance(input, out); } NOP; HALT;";
+            GameDebugSession session = prepare(level(List.of(example(3, 0)), 1000), source, ALL);
+            SourceLocation callsite = null;
+            for (int iteration = 1; iteration <= 3; iteration++) {
+                while (session.getCurrentTrace().callers().isEmpty()) require(session.step(), "loop reaches its helper");
+                SourceLocation current = session.getCurrentTrace().callers().get(0);
+                require(callsite == null || callsite.equals(current), "loop reuses the same static invocation range");
+                callsite = current;
+                GameDebugSession.StepOver operation = session.newStepOver();
+                require(operation.step(1000) == 2 && operation.isComplete(), "one dynamic invocation executes");
+                require(value(session, "input") == 3 - iteration && value(session, "out") == iteration,
+                        "later iterations have not been consumed");
+                require(session.getCurrentTrace().callers().isEmpty(), "stop at main-loop control between invocations");
+            }
+            run(session);
+            require(value(session, "out") == 3, "remaining main control terminates normally");
+        });
+
+        test("step over matches ordinary statement stepping outside macros and bounds long generated code", () -> {
+            GameLevel level = level(List.of(example(0, 0)), 1000);
+            String source = GLOBALS + "var scratch=12; NOP; HALT;";
+            GameDebugSession expected = prepare(level, source, ALL);
+            int expectedSteps = expected.stepStatement(1000);
+            GameDebugSession session = prepare(level, source, ALL);
+            GameDebugSession.StepOver operation = session.newStepOver();
+            require(operation.step(1) == 1 && !operation.isComplete(), "long initializer yields");
+            while (!operation.isComplete()) require(operation.step(2) <= 2, "bounded initializer continuation");
+            require(session.getStepCount() == expectedSteps && session.getMemory().equals(expected.getMemory())
+                    && selectedText(session).equals("NOP;"), "outside macro matches a complete statement step");
+            require(session.newStepOver().step(100) == 1 && session.getStatus() == GameDebugSession.Status.HALTED,
+                    "ordinary primitive is a single step");
+            expect(IllegalArgumentException.class, () -> operation.step(0));
+            expect(IllegalArgumentException.class, () -> operation.step(-1));
+        });
+
+        test("restart and independent steps invalidate a captured step over without changing normal stepping", () -> {
+            String source = "void three(cell) {\nINC cell;\nINC cell;\nINC cell;\n}\n"
+                    + GLOBALS + "three(input); NOP; HALT;";
+            GameDebugSession session = prepare(level(List.of(example(0, 0)), 100), source, ALL);
+            GameDebugSession.StepOver beforeRestart = session.newStepOver();
+            beforeRestart.step(1);
+            session.restart();
+            require(beforeRestart.isComplete() && beforeRestart.step(100) == 0 && value(session, "input") == 0,
+                    "old operation cannot execute restarted program");
+            GameDebugSession.StepOver interrupted = session.newStepOver();
+            interrupted.step(1);
+            require(session.stepStatement(100) == 1 && value(session, "input") == 2,
+                    "ordinary statement step still enters individual macro body statements");
+            require(interrupted.isComplete() && interrupted.step(100) == 0 && session.getStepCount() == 2,
+                    "independent step invalidates continuation");
+            require(session.newStepOver().step(100) == 1 && value(session, "input") == 3
+                    && selectedText(session).equals("NOP;"), "fresh operation can finish the remaining invocation");
+        });
+
+        test("step over handles empty macros and terminal HALT inside an expansion", () -> {
+            String source = "void empty() {\n}\nvoid stop(cell) {\nINC cell;\nHALT;\nINC cell;\n}\n"
+                    + GLOBALS + "empty(); NOP; empty(); stop(input); INC out; HALT;";
+            GameDebugSession session = prepare(level(List.of(example(0, 0)), 100), source, ALL);
+            require(selectedText(session).equals("NOP;"), "empty expansion has no executable location");
+            require(session.newStepOver().step(100) == 1 && session.getCurrentTrace().callers().size() == 1,
+                    "empty expansion between statements is naturally skipped");
+            GameDebugSession.StepOver operation = session.newStepOver();
+            require(operation.step(100) == 1 && operation.isComplete() && session.getStatus() == GameDebugSession.Status.HALTED,
+                    "HALT within macro completes stepping early");
+            require(value(session, "input") == 1 && value(session, "out") == 0 && selectedText(session).equals("HALT;"),
+                    "instructions after macro HALT stay unexecuted");
+            require(session.newStepOver().isComplete() && session.newStepOver().step(100) == 0,
+                    "already halted sessions cannot advance");
+        });
+
+        test("step over respects overflow guards and execution limits across batches", () -> {
+            String source = "void increment(cell) {\nINC cell;\n}\n" + GLOBALS + "increment(input); HALT;";
+            GameDebugSession overflow = prepare(level(List.of(example(Integer.MAX_VALUE, 0)), 100), source, ALL);
+            List<Integer> before = overflow.getMemory();
+            GameDebugSession.StepOver unsafe = overflow.newStepOver();
+            require(unsafe.step(100) == 0 && unsafe.isComplete() && overflow.getStatus() == GameDebugSession.Status.ERROR,
+                    "overflow guard completes operation without executing unsafe instruction");
+            require(overflow.getMemory().equals(before), "failed macro step leaves memory intact");
+            String loop = "void repeat(cell) {\nwhile(cell!=0) {\nNOP;\n}\n}\n" + GLOBALS + "repeat(input); HALT;";
+            GameDebugSession bounded = prepare(level(List.of(example(1, 0)), 17), loop, ALL);
+            GameDebugSession.StepOver running = bounded.newStepOver();
+            require(running.step(3) == 3 && !running.isComplete(), "long macro yields at requested batch size");
+            require(running.step(5) == 5 && !running.isComplete(), "same target survives further internal control flow");
+            require(running.step(100) == 9 && running.isComplete() && bounded.getStepCount() == 17
+                    && bounded.getStatus() == GameDebugSession.Status.LIMIT_REACHED, "level budget remains authoritative");
+            require(running.step(100) == 0, "exhausted operation cannot exceed budget");
+        });
+
         System.out.println("GameDebugSessionTest: " + passed + " passed, " + failed + " failed");
         if (failed != 0) throw new AssertionError(failed + " game debug session tests failed");
     }

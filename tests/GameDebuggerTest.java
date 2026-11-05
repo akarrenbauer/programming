@@ -95,6 +95,21 @@ public final class GameDebuggerTest {
                 "import \"toolbox\";\nvar input=0;\nvar spare=4;\nvar buffer[2]=1;\nbegin:\nvar work=3;\nINC work;\nhelper(input);\nhelper(input);\nINC buffer[1];\nHALT;\n",
                 EnumSet.allOf(GameFeature.class), Map.of("toolbox",
                         "void helper(value) {\nvar out=2;\nvar temp[1]=1;\nINC out;\nINC temp[0];\nINC value;\n}\n"), 0);
+        String nestedLibrary = "void leaf(value) {\nINC value;\n}\nvoid outer(value) {\nleaf(value);\nleaf(value);\n}\n";
+        GameDebugSession overImported = prepare(level("over-imported", List.of(example(3, Map.of("input", 5, "out", 1))), 100),
+                "import \"toolbox\";\nvar input=99; var out=0;\nbegin:\nNOP;\nouter(input);\nINC out;\nHALT;\n",
+                EnumSet.of(GameFeature.MACROS, GameFeature.IMPORTS), Map.of("toolbox", nestedLibrary), 0);
+        GameDebugSession overConsecutive = prepare(level("over-consecutive", List.of(example(0, Map.of("input", 4, "out", 1))), 100),
+                "import \"toolbox\";\nvar input=0; var out=0;\nbegin:\nouter(input);\nouter(input);\nINC out;\nHALT;\n",
+                EnumSet.of(GameFeature.MACROS, GameFeature.IMPORTS), Map.of("toolbox", nestedLibrary), 0);
+        String macroLoop = "void spin(value) {\nagain: JNZ value again;\n}\nvar input=99; var out=0;\nbegin:\nNOP;\nspin(input);\nINC out;\nHALT;\n";
+        GameDebugSession overLoop = prepare(level("over-loop", List.of(example(1, Map.of("out", 0))), 2_000_000),
+                macroLoop, Set.of(GameFeature.MACROS), Map.of(), 0);
+        GameDebugSession overLimit = prepare(level("over-limit", List.of(example(1, Map.of("out", 0))), 5),
+                macroLoop, Set.of(GameFeature.MACROS), Map.of(), 0);
+        GameDebugSession overOverflow = prepare(level("over-overflow", List.of(example(Integer.MAX_VALUE, Map.of("input", Integer.MAX_VALUE))), 100),
+                "void bump(value) { INC value; }\nvar input=0; begin: bump(input); HALT;",
+                Set.of(GameFeature.MACROS), Map.of(), 0);
 
         AtomicReference<Throwable> asynchronousError = new AtomicReference<>();
         Thread.UncaughtExceptionHandler previousHandler = Thread.getDefaultUncaughtExceptionHandler();
@@ -174,6 +189,141 @@ public final class GameDebuggerTest {
                 expectRange(editor(MAIN), "INC out;");
                 expectMemory("out", 0);
                 expectState();
+            });
+
+            check("Step over outside a macro crosses one source statement including generated initializer code", () -> {
+                onFx(() -> {
+                    statement.restart(); open(statement);
+                    expect(button("debug-step-over").getText().equals("Step over"), "new action has its expected label");
+                    List<Node> controls = button("debug-step-over").getParent().getChildrenUnmodifiable();
+                    expect(controls.indexOf(button("debug-statement-step")) < controls.indexOf(button("debug-step-over"))
+                                    && controls.indexOf(button("debug-step-over")) < controls.indexOf(button("debug-run")),
+                            "Step over is between statement stepping and Run");
+                    button("debug-step-over").fire();
+                });
+                await(() -> button("debug-run").getText().equals("Run") && session.getStepCount() > 0);
+                onFx(() -> {
+                    expect(session.getStatus() == GameDebugSession.Status.READY && session.getStepCount() > 1,
+                            "normal statement stepping completes the generated initializer");
+                    expectRange(editor(MAIN), "INC out;"); expectMemory("out", 0);
+                    button("debug-step-over").fire();
+                });
+                await(() -> session.isStopped());
+                onFx(() -> { expectMemory("out", 1); expectRange(editor(MAIN), "HALT;"); expectStoppedControls(); });
+            });
+
+            check("Step over leaves an imported outer macro after all nested calls", () -> {
+                onFx(() -> {
+                    open(overImported); button("debug-step").fire();
+                    expectRange(editor(LIBRARY_PATH), "INC value;");
+                    expect(callerLinks().size() == 2, "fixture starts inside the imported nested call");
+                    button("debug-step-over").fire();
+                });
+                await(() -> button("debug-run").getText().equals("Run"));
+                onFx(() -> {
+                    expect(session.getStepCount() == 3 && session.getStatus() == GameDebugSession.Status.READY,
+                            "step over executes both nested leaf calls and stops before the next main instruction");
+                    expectMemory("input", 5); expectMemory("out", 0);
+                    expectRange(editor(MAIN), "INC out;");
+                    expect(tabs().getSelectionModel().getSelectedItem() == tab(MAIN) && callerLinks().isEmpty(),
+                            "return selects the caller's next main source range and clears caller links");
+                    expect(editor(LIBRARY_PATH).getExecutionRange() == null && editor(LIBRARY_PATH).getCallerRanges().isEmpty(),
+                            "completed imported expansion leaves no stale execution decoration");
+                    expect(!button("debug-step-over").isDisabled(), "completion restores manual stepping");
+                });
+            });
+
+            check("consecutive identical macro calls stop individually at their distinct caller positions", () -> {
+                onFx(() -> { open(overConsecutive); button("debug-step-over").fire(); });
+                await(() -> button("debug-run").getText().equals("Run"));
+                onFx(() -> {
+                    expect(session.getStepCount() == 2 && !session.isStopped(), "only the first outer invocation has executed");
+                    expectMemory("input", 2); expectMemory("out", 0);
+                    SourceLocation caller = session.getCurrentTrace().callers().get(0);
+                    expect(caller.file().equals(MAIN) && caller.startOffset() == editor(MAIN).getText().lastIndexOf("outer(input);"),
+                            "same macro spelling still stops at the second call's distinct source location");
+                    expect(tabs().getSelectionModel().getSelectedItem() == tab(MAIN),
+                            "step-over keeps the next outer call visible in the main program");
+                    expectCaller(editor(MAIN), "outer(input);");
+                    expectRange(editor(LIBRARY_PATH), "INC value;");
+                });
+                String overScreenshot = System.getProperty("debug.stepover.screenshot");
+                if (overScreenshot != null) {
+                    awaitDelay(80);
+                    onFx(() -> writeSnapshot(Path.of(overScreenshot)));
+                }
+                onFx(() -> button("debug-step-over").fire());
+                await(() -> button("debug-run").getText().equals("Run"));
+                onFx(() -> {
+                    expect(session.getStepCount() == 4 && !session.isStopped(), "second action executes exactly the second invocation");
+                    expectMemory("input", 4); expectMemory("out", 0); expectRange(editor(MAIN), "INC out;");
+                });
+            });
+
+            check("long macro step-over yields across batches and Pause Restart and Close cancel its target", () -> {
+                onFx(() -> {
+                    open(overLoop); button("debug-step").fire(); button("debug-step-over").fire();
+                    expect(button("debug-run").getText().equals("Pause"), "active step-over exposes the usual Pause control");
+                    int before = session.getStepCount();
+                    for (String id : List.of("debug-step", "debug-statement-step", "debug-step-over")) {
+                        expect(button(id).isDisabled(), "active step-over disables " + id); button(id).fire();
+                    }
+                    expect(session.getStepCount() == before, "disabled actions cannot compete with asynchronous step-over");
+                });
+                await(() -> session.getStepCount() > 2000);
+                int[] stoppedAt = {0};
+                onFx(() -> {
+                    expect(!session.isStopped(), "loop remains interruptible after more than one batch");
+                    button("debug-run").fire(); stoppedAt[0] = session.getStepCount();
+                    expect(button("debug-run").getText().equals("Run") && !button("debug-step-over").isDisabled(),
+                            "Pause returns control before the macro completes");
+                });
+                awaitDelay(120);
+                onFx(() -> {
+                    expect(session.getStepCount() == stoppedAt[0], "paused step-over remains stationary across pulses");
+                    button("debug-step-over").fire();
+                });
+                await(() -> session.getStepCount() > stoppedAt[0]);
+                onFx(() -> {
+                    button("debug-restart").fire();
+                    expect(session.getStepCount() == 0 && !session.isStopped() && button("debug-run").getText().equals("Run"),
+                            "Restart cancels the active step-over and resets execution");
+                    expectRange(editor(MAIN), "NOP;"); expectMemory("input", 1); expectMemory("out", 0);
+                });
+                awaitDelay(120);
+                onFx(() -> {
+                    expect(session.getStepCount() == 0, "restarted execution stays stationary");
+                    button("debug-step-over").fire();
+                });
+                await(() -> button("debug-run").getText().equals("Run"));
+                onFx(() -> {
+                    expect(session.getStepCount() == 1 && !session.getCurrentTrace().callers().isEmpty(),
+                            "after restart, stepping over the main NOP stops at the macro rather than reusing its cancelled target");
+                    button("debug-step-over").fire();
+                });
+                await(() -> session.getStepCount() > 2000);
+                onFx(() -> { debugger.close(); stoppedAt[0] = session.getStepCount(); });
+                awaitDelay(120);
+                onFx(() -> expect(!stage.isShowing() && session.getStepCount() == stoppedAt[0],
+                        "closing cancels long macro stepping and prevents background mutation"));
+            });
+
+            check("macro step-over preserves exact step limits and arithmetic safety stops", () -> {
+                onFx(() -> { open(overLimit); button("debug-step").fire(); button("debug-step-over").fire(); });
+                await(() -> session.isStopped());
+                onFx(() -> {
+                    expect(session.getStatus() == GameDebugSession.Status.LIMIT_REACHED && session.getStepCount() == 5,
+                            "step-over respects the exact shared instruction budget");
+                    expectStoppedControls(); expectMemory("out", 0);
+                    open(overOverflow); button("debug-step-over").fire();
+                });
+                await(() -> session.isStopped());
+                onFx(() -> {
+                    expect(session.getStatus() == GameDebugSession.Status.ERROR && session.getStepCount() == 0,
+                            "step-over rejects overflow before the unsafe macro instruction executes");
+                    expectMemory("input", Integer.MAX_VALUE); expectRange(editor(MAIN), "INC value;");
+                    expectStoppedControls();
+                });
             });
 
             checkFx("Variables shows non-port globals arrays and each local allocation through step and restart", () -> {
@@ -342,7 +492,8 @@ public final class GameDebuggerTest {
                 expect(node("debug-message", Label.class).getText().equals("HALT erreicht. Die Ausgaben stimmen mit diesem Testfall überein. Die Fehlersuche schließt keine Aufgabe ab."),
                         "halt and output-match guidance are entirely German");
                 expect(node("debug-location", Label.class).getText().startsWith("Angehalten: solution.a26:"), "halted location prefix is German");
-                expect(tableValue(ports(), "Now", "input").equals("8") && button("debug-restart").getText().equals("Restart"),
+                expect(tableValue(ports(), "Now", "input").equals("8") && button("debug-restart").getText().equals("Restart")
+                                && button("debug-step-over").getText().equals("Step over"),
                         "static controls and numerical inspection remain unchanged");
                 button("debug-restart").fire();
                 expect(node("debug-message", Label.class).getText().equals("Bereit für den nächsten Schritt."), "restart restores translated ready status");
@@ -470,7 +621,7 @@ public final class GameDebuggerTest {
     }
 
     private static void expectStoppedControls() {
-        for (String id : List.of("debug-step", "debug-statement-step", "debug-run")) expect(button(id).isDisabled(), id + " is disabled when execution stops");
+        for (String id : List.of("debug-step", "debug-statement-step", "debug-step-over", "debug-run")) expect(button(id).isDisabled(), id + " is disabled when execution stops");
         expect(!button("debug-restart").isDisabled(), "Restart remains available");
     }
 

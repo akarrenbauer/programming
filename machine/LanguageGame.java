@@ -38,7 +38,6 @@ import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableRow;
 import javafx.scene.control.TableView;
-import javafx.scene.control.TextArea;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
@@ -81,7 +80,7 @@ public class LanguageGame extends Application {
     private Set<GameFeature> grammarHighlights = Set.of();
     private Label grammarNotice;
     private Label toolboxNotice;
-    private TextArea toolbox;
+    private SourceEditor toolbox;
     private Label worldLabel;
     private Label titleLabel;
     private Label summaryLabel;
@@ -395,10 +394,15 @@ public class LanguageGame extends Application {
         });
         grammar = new GameGrammarView();
         grammar.setId("game-grammar");
-        toolbox = readOnlyText("game-toolbox");
+        toolbox = new SourceEditor("");
+        toolbox.setId("game-toolbox");
+        toolbox.setAccessibleText("Earned helper definitions");
+        toolbox.setEditable(false);
+        toolbox.zoomFactorProperty().bind(editorZoom.factorProperty());
         insertHelpers = new Button("Insert earned helpers at the top");
+        insertHelpers.setId("game-insert-helpers");
         insertHelpers.setOnAction(event -> {
-            String library = GameCatalog.library(progress.completedIds()).getOrDefault("toolbox", "");
+            String library = formattedToolbox();
             if (!library.isBlank()) editor.insertText(0, library + "\n");
         });
         Label toolboxHelp = new Label("Earn helpers by implementing their behavior. Once imports unlock, use import \"toolbox\"; or import \"macros.a26\";.\n"
@@ -443,10 +447,14 @@ public class LanguageGame extends Application {
         redo.setTooltip(new Tooltip("Restore the last undone source or applied diagram edit."));
         redo.disableProperty().bind(editor.redoableProperty().not().or(editor.editableProperty().not()));
         redo.setOnAction(event -> editor.redo());
-        Region editorSpacer = new Region();
-        HBox.setHgrow(editorSpacer, Priority.ALWAYS);
-        HBox editorControls = new HBox(8, sourceHeading, editorSpacer, undo, redo);
-        editorControls.setAlignment(Pos.CENTER_LEFT);
+        Button format = new Button("Format");
+        format.setId("game-format");
+        format.setTooltip(new Tooltip("Format the program with Java-style braces, line breaks, and two-space indentation. Undo reverses the change."));
+        format.disableProperty().bind(editor.editableProperty().not().or(editor.textProperty().isEmpty()));
+        format.setOnAction(event -> formatSource());
+        HBox sourceActions = new HBox(8, format, undo, redo);
+        sourceActions.setAlignment(Pos.CENTER_LEFT);
+        FlowPane editorControls = new FlowPane(8, 4, sourceHeading, sourceActions);
         editorControls.setPadding(new Insets(0, 6, 0, 0));
         sourcePane.getChildren().add(0, editorControls);
         VBox program = new VBox(editorVersion, programEditors);
@@ -546,12 +554,21 @@ public class LanguageGame extends Application {
         return center;
     }
 
-    private TextArea readOnlyText(String id) {
-        TextArea text = new TextArea();
-        text.setId(id);
-        text.setEditable(false);
-        text.setStyle("-fx-font-family: monospace; -fx-font-size: 13px;");
-        return text;
+    private void formatSource() {
+        if (loading || activeCheck != null || !editor.isEditable()) return;
+        String source = editor.getText();
+        String formatted = SourceFormatter.format(source);
+        if (!formatted.equals(source)) {
+            int caret = editor.getCaretPosition();
+            // A single replacement keeps formatting in the shared source undo history.
+            editor.replaceText(0, source.length(), formatted);
+            editor.positionCaret(Math.min(caret, formatted.length()));
+        }
+        editor.requestFocus();
+    }
+
+    private String formattedToolbox() {
+        return SourceFormatter.format(GameCatalog.library(progress.completedIds()).getOrDefault("toolbox", ""));
     }
 
     private void addColumn(String title, java.util.function.Function<GameResult.CaseResult, String> value) {
@@ -829,7 +846,7 @@ public class LanguageGame extends Application {
         if (!progress.unreadGrammarFeatures().isEmpty()) grammarHighlights = progress.unreadGrammarFeatures();
         grammar.update(progress.features(), grammarHighlights, currentIndex < 0 || !GameWorld.usesDiagrams(current()));
         acknowledgeInventory();
-        String library = GameCatalog.library(progress.completedIds()).getOrDefault("toolbox", "");
+        String library = formattedToolbox();
         toolbox.setText(library.isBlank() ? "// Solved challenges will add reusable helpers here.\n" : library);
         insertHelpers.setDisable(activeCheck != null || library.isBlank() || !progress.features().contains(GameFeature.MACROS));
         next.setDisable(activeCheck != null || nextLevelIndex() < 0);

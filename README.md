@@ -128,12 +128,19 @@ and enforce structured control flow; the later-world flowchart offers structured
 insertion tools instead of movable jump destinations. **Undo** and **Redo** above
 the source also reverse and restore applied diagram edits. For keyboard undo,
 click in the source and press **Ctrl+Z** (**Cmd+Z** on macOS).
+**Format**, beside Undo and Redo, lays out the current program with two-space
+indentation, opening braces beside their headers, and statements on separate
+lines. It preserves code tokens and comments; one Undo restores the previous
+layout. **Earned toolbox** shows syntax-highlighted helpers in the same style,
+which is also used when you insert them into your program.
 The first challenge in this world rewrites
 the working `if` plus `do/while` loop using the newly earned `while` syntax.
 Earlier worlds remain available for replay.
 Use **Debug** to inspect a draft with one test case. Its **Variables** table
 shows declared globals, individual array cells, and allocated local variables;
 values update as you step and reset when you restart the case.
+**Step over** finishes the current macro invocation, including nested helpers,
+before stopping at the next statement. Use **Pause** to interrupt a long step.
 Choose **English** or **Deutsch** under **Task language**. The initial choice
 follows the system language; the game remembers your selection. Task text,
 hints, and status messages are translated, while control labels, grammar, and code stay in English.

@@ -127,7 +127,7 @@ public class Compiler {
             String line = strippedSourceCode.get(i).text.trim();
 
             // Check if the line is a macro definition
-            if (line.startsWith("void") ) {
+            if (line.startsWith("void") && (line.length() == 4 || Character.isWhitespace(line.charAt(4)))) {
                 if( line.contains("(") && line.contains(")")) {
                     String macroName = line.substring(5, line.indexOf('(')).trim();
                     String parameters = line.substring(line.indexOf('(') + 1, line.indexOf(')')).trim();
@@ -296,8 +296,10 @@ public class Compiler {
             MappedText trimmed = sourceLine.trimOriginal();
             String line = trimmed.text;
 
-            // Check if the line is an import statement
-            if (line.startsWith("import")) {
+            // Moving a macro call or label to its own line must not turn an
+            // identifier such as important, import(...), or import: into a directive.
+            if (line.startsWith("import") && (line.length() == 6
+                    || Character.isWhitespace(line.charAt(6)) || line.charAt(6) == '"')) {
                 if( line.contains("\"") && line.endsWith("\";") ) {
                     String filename = line.substring(line.indexOf('"') + 1, line.lastIndexOf('"')).trim();
                     output.addAll(loader.load(Paths.get(filename)));
@@ -317,7 +319,9 @@ public class Compiler {
     }
 
     private static List<MappedText> stripMappedComments(List<MappedText> sourceCode) {
-        Pattern splitAfter = Pattern.compile("(?<=[;:{])");
+        // Macro declarations, calls, and private labels must be recognized the
+        // same way after a block whether or not the author inserted a newline.
+        Pattern splitAfter = Pattern.compile("(?<=[;:{}])");
         List<MappedText> output = new ArrayList<>();
         for (MappedText original : sourceCode) {
             int comment = original.text.indexOf("//");
