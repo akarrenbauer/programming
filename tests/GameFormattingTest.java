@@ -82,6 +82,7 @@ public final class GameFormattingTest {
                 }
                 expect(!keyword.getFill().equals(instruction.getFill()) && !comment.getFill().equals(instruction.getFill()),
                         "keywords, instructions, and helper comments use distinct colors");
+                expectPaintedSyntax(toolbox);
                 toolbox.requestFocus();
                 toolbox.fireEvent(new KeyEvent(KeyEvent.KEY_TYPED, "x", "", KeyCode.UNDEFINED, false, false, false, false));
                 expect(toolbox.getText().equals(formattedHelpers), "typing cannot change earned helper definitions");
@@ -97,6 +98,42 @@ public final class GameFormattingTest {
                 source.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.SUBTRACT, false, true, false, false));
                 close(toolbox.getZoomFactor(), 1, "source shortcut also updates the cached toolbox");
             }));
+
+            check("toolbox glyphs remain painted after tab changes hidden zoom and inventory refresh", () -> {
+                onFx(() -> selectTab("toolbox-tab"));
+                pulse();
+                onFx(() -> {
+                    expectPaintedSyntax(toolbox);
+                    toolbox.setScrollTop(150);
+                    selectTab(null);
+                    source.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.ADD, false, true, false, false));
+                });
+                pulse();
+                onFx(() -> taskLanguage(GameTaskLanguage.GERMAN));
+                pulse();
+                onFx(() -> selectTab("toolbox-tab"));
+                pulse();
+                onFx(() -> {
+                    close(toolbox.getZoomFactor(), 1.1, "hidden toolbox receives the source zoom");
+                    expect(toolbox.getText().equals(formattedHelpers), "inventory refresh preserves earned definitions");
+                    expectPaintedSyntax(toolbox);
+                    toolbox.requestFocus(); toolbox.selectAll();
+                });
+                pulse();
+                onFx(() -> {
+                    toolbox.deselect();
+                    toolbox.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.SUBTRACT, false, true, false, false));
+                    taskLanguage(GameTaskLanguage.ENGLISH);
+                });
+                pulse();
+                onFx(() -> {
+                    expect(toolbox.getSelectedText().isEmpty(), "visibility does not depend on selected native text");
+                    close(toolbox.getZoomFactor(), 1, "visible toolbox zoom returns to its original scale");
+                    expectPaintedSyntax(toolbox);
+                    expect(source.getText().equals(RAW) && !source.isUndoable(), "view transitions preserve the source and its history");
+                    selectTab(null);
+                });
+            });
 
             check("inserting earned helpers uses the same indentation and one undo transaction", () -> onFx(() -> {
                 source.setText(BASE);
@@ -217,6 +254,23 @@ public final class GameFormattingTest {
     }
     @SuppressWarnings("unchecked") private static void mode(String value) {
         node("game-diagram-mode", ComboBox.class).setValue(value); layout();
+    }
+    @SuppressWarnings("unchecked") private static void taskLanguage(GameTaskLanguage value) {
+        node("task-language", ComboBox.class).setValue(value);
+    }
+    private static void expectPaintedSyntax(SourceEditor editor) {
+        for (SourceSyntax.Kind kind : SourceSyntax.highlight(editor.getText(), editor.getLanguageVersion()).stream()
+                .filter(span -> !editor.getText().substring(span.start(), span.end()).isBlank())
+                .map(SourceSyntax.Span::kind).distinct().toList()) {
+            Text layer = token(editor, kind.name().toLowerCase(Locale.ROOT));
+            expect(layer.getText().equals(editor.getText()), "painted " + kind + " layer retains the exact source");
+            expect(layer.getFill() instanceof Color color && color.getOpacity() > 0, kind + " glyphs have visible ink");
+            expect(layer.getClip() instanceof javafx.scene.shape.Path path && !path.getElements().isEmpty(),
+                    kind + " glyphs have real clipping geometry rather than an empty mask");
+            Bounds clip = layer.getClip().getBoundsInLocal();
+            expect(clip.getWidth() > 0 && clip.getHeight() > 0 && clip.intersects(layer.getLayoutBounds()),
+                    kind + " clipping geometry intersects the text it paints");
+        }
     }
     private static Text token(SourceEditor editor, String kind) {
         Node layer = editor.lookup(".syntax-" + kind);

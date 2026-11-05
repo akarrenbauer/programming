@@ -167,6 +167,10 @@ skin. Native editing, selection, caret movement, scrolling, and undo remain with
 `TextArea`; highlighting does not rewrite the buffer. `SourceSyntax` classifies
 text independently of the parser so incomplete programs can be highlighted while
 typing. Both use the existing Java/JavaFX dependencies.
+Each rebuilt syntax layer starts with an empty clip and must recompute its token
+geometry. Geometry listeners defer while a layer rebuild is pending, so a scroll
+or layout update cannot consume that work on the old layers and leave the new
+text invisible.
 
 Plain Enter copies the current line's leading spaces and tabs into the new line,
 limited to the prefix before the insertion point when splitting indentation.
@@ -282,6 +286,9 @@ java -cp "$machine_build" machine.CompilerValueComparisonsTest
 The JavaFX checks in [SourceEditorTest](../tests/SourceEditorTest.java) and
 [MachineGUISourceMappingTest](../tests/MachineGUISourceMappingTest.java) cover marker
 geometry, scrolling, macro navigation, editing behavior, and stale-map removal.
+The source-editor checks also combine recoloring and scrolling before layout;
+[GameFormattingTest](../tests/GameFormattingTest.java) checks visible token clips
+through toolbox tab changes, zoom, and inventory refreshes.
 Their file headers describe how to compile and run them with JavaFX. They require
 working JavaFX native libraries and a desktop or supported headless display.
 

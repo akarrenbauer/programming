@@ -204,6 +204,63 @@ public final class SourceEditorTest {
                 expect(edited.equals(renderedText()), "redo refreshes highlighting");
             });
 
+            checkFx("read-only profile changes followed by scrolling keep unselected syntax visible", () -> {
+                String original = geometrySource().repeat(16);
+                String draft = original + "// pending edit\n";
+                show(original);
+                editor.appendText("// pending edit\n");
+                editor.selectRange(18, 5);
+                editor.setEditable(false);
+                layout();
+                AtomicInteger changes = new AtomicInteger();
+                editor.textProperty().addListener((observable, before, after) -> changes.incrementAndGet());
+                for (int iteration = 0; iteration < 4; iteration++) {
+                    editor.setLanguageVersion(iteration % 2 == 0
+                            ? LanguageVersion.BEFORE_DO_WHILE : LanguageVersion.STRUCTURED);
+                    // Scroll changes the native transform before layout replaces the syntax layers.
+                    editor.setScrollTop(80 * (iteration + 1));
+                    layout();
+                    expectAligned();
+                    expectVisibleUnselectedText();
+                    expect(draft.equals(editor.getText()) && changes.get() == 0 && !editor.isEditable(),
+                            "profile and scroll changes preserve the read-only document");
+                    expect(editor.getAnchor() == 18 && editor.getCaretPosition() == 5 && editor.isUndoable(),
+                            "repeated repainting preserves selection direction and the existing undo edit");
+                }
+                editor.setEditable(true);
+                editor.undo(); expect(original.equals(editor.getText()), "undo still removes only the user's edit");
+                editor.redo(); expect(draft.equals(editor.getText()), "redo still restores the same edit");
+            });
+
+            checkFx("read-only CSS recoloring followed by scrolling rebuilds every syntax clip", () -> {
+                String original = geometrySource().repeat(16);
+                String draft = original + "// pending edit\n";
+                show(original);
+                editor.appendText("// pending edit\n");
+                editor.selectRange(18, 5);
+                editor.setEditable(false);
+                layout();
+                AtomicInteger changes = new AtomicInteger();
+                editor.textProperty().addListener((observable, before, after) -> changes.incrementAndGet());
+                for (int iteration = 0; iteration < 4; iteration++) {
+                    String color = iteration % 2 == 0 ? "#27364b" : "#183024";
+                    editor.setStyle("-fx-font-family: monospace; -fx-font-size: 13px; -fx-text-fill: " + color + ";");
+                    editor.applyCss();
+                    editor.setScrollTop(80 * (iteration + 1));
+                    layout();
+                    expectAligned();
+                    expectVisibleUnselectedText();
+                    expect(token("plain").getFill().equals(Color.web(color)), "replacement plain layer uses the new text color");
+                    expect(draft.equals(editor.getText()) && changes.get() == 0 && !editor.isEditable(),
+                            "CSS and scroll changes preserve the read-only document");
+                    expect(editor.getAnchor() == 18 && editor.getCaretPosition() == 5 && editor.isUndoable(),
+                            "repeated CSS repainting preserves selection and the existing undo edit");
+                }
+                editor.setEditable(true);
+                editor.undo(); expect(original.equals(editor.getText()), "CSS adds no undo transaction");
+                editor.redo(); expect(draft.equals(editor.getText()), "CSS leaves redo intact");
+            });
+
             checkFx("native replacement undo and redo preserve tabs Unicode and blank lines", () -> {
                 String source = "// Grüße 🌱\n\nvar\tvalue = 7;\nbegin:\n\tINC value;\n\nHALT;\n";
                 show(source);
@@ -937,6 +994,24 @@ public final class SourceEditorTest {
             }
         }
         expect(ImageIO.write(image, "png", path.toFile()), "PNG writer must be available");
+    }
+
+    private static void expectVisibleUnselectedText() {
+        Node viewport = editor.lookup(".viewport");
+        expect(viewport != null, "source text viewport exists");
+        Bounds selection = shapeBounds(nativeText(), nativeText().rangeShape(
+                editor.getSelection().getStart(), editor.getSelection().getEnd()));
+        expect(!selection.intersects(viewport.localToScene(viewport.getLayoutBounds())),
+                "selected native glyphs are offscreen and cannot mask missing syntax layers");
+        WritableImage snapshot = editor.snapshot(null, null);
+        int ink = 0;
+        for (int y = 10; y < (int) snapshot.getHeight() - 25; y++) {
+            for (int x = 10; x < (int) snapshot.getWidth() - 25; x++) {
+                Color color = snapshot.getPixelReader().getColor(x, y);
+                if (color.getOpacity() > .9 && Math.max(color.getRed(), Math.max(color.getGreen(), color.getBlue())) < .8) ink++;
+            }
+        }
+        expect(ink > 100, "unselected source must paint visible glyphs inside the viewport; found " + ink + " ink pixels");
     }
 
     private static void onFx(Check action) throws Exception {

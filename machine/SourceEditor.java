@@ -338,6 +338,9 @@ public final class SourceEditor extends TextArea {
                 }
             }
             highlights.getChildren().setAll(layers);
+            // New layers have empty clips, even if an earlier geometry update
+            // already rebuilt the old layers during this layout cycle.
+            metricsDirty = true;
         }
 
         private Text createLayer(SourceSyntax.Kind kind) {
@@ -370,7 +373,8 @@ public final class SourceEditor extends TextArea {
         }
 
         private void positionHighlights() {
-            if (nativeText == null || highlights.getParent() == null || updatingGeometry) {
+            // Wait for the new token layers before consuming their pending geometry update.
+            if (dirty || nativeText == null || highlights.getParent() == null || updatingGeometry) {
                 return;
             }
             if (!nativeText.getText().equals(renderedSource)) {
